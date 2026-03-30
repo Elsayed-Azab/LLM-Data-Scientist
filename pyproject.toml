@@ -1,0 +1,54 @@
+[project]
+name = "llm-data-scientist"
+version = "0.1.0"
+description = "Research platform evaluating LLMs as data analysts on social science survey data"
+requires-python = ">=3.10"
+dependencies = [
+    # Data
+    "pandas>=2.0",
+    "pyreadstat>=1.2",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "statsmodels>=0.14",
+    # LLM / Agents
+    "langchain>=0.3",
+    "langchain-openai>=0.2",
+    "langchain-anthropic>=0.3",
+    "langgraph>=0.2",
+    "openai>=1.0",
+    "anthropic>=0.40",
+    # RAG
+    "chromadb>=0.4",
+    "pdfplumber>=0.10",
+    "langchain-text-splitters>=0.2",
+    # Viz
+    "matplotlib>=3.7",
+    "seaborn>=0.13",
+    # Config
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ipykernel>=6.0",
+    "jupyter>=1.0",
+]
+ui = [
+    "flask>=3.0",
+    "flask-socketio>=5.3",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

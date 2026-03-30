@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% set active = "models" %}
+{% block title %}Model Comparison{% endblock %}
+
+{% block sidebar %}
+<div style="margin-top:10px;">
+    <h5>Model Test</h5>
+    <label class="ctrl-label">Dataset</label>
+    <select id="mc-dataset" class="ctrl-select"></select>
+    <label class="ctrl-label" style="margin-top:6px;">Agent</label>
+    <select id="mc-agent" class="ctrl-select">
+        <option value="single">Single Agent</option>
+        <option value="multi">Multi-Agent</option>
+        <option value="rag">RAG Agent</option>
+    </select>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="content">
+    <div class="page-head">
+        <h1>Model Comparison</h1>
+        <p class="sub">Claude vs OpenAI — same question, same agent, different LLM</p>
+    </div>
+
+    <div class="hr"></div>
+
+    <label class="ctrl-label">Question</label>
+    <select id="mc-preset" class="ctrl-select" style="margin:6px 0 10px;"></select>
+    <input type="text" id="mc-custom" placeholder="Or type a custom question..."
+           style="width:100%; padding:10px 14px; background:var(--bg-input); border:1px solid var(--border-input);
+                  border-radius:var(--radius-sm); color:var(--text); font-size:0.9rem; font-family:var(--font);
+                  outline:none; margin-bottom:12px;">
+
+    <label class="ctrl-label">Models to compare</label>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:18px;">
+        <button class="model-toggle active" data-model="claude-sonnet-4-20250514" data-provider="anthropic" onclick="toggleModel(this)">Claude Sonnet</button>
+        <button class="model-toggle active" data-model="gpt-4o" data-provider="openai" onclick="toggleModel(this)">GPT-4o</button>
+        <button class="model-toggle" data-model="gpt-4o-mini" data-provider="openai" onclick="toggleModel(this)">GPT-4o-mini</button>
+        <button class="model-toggle" data-model="claude-haiku-4-5-20251001" data-provider="anthropic" onclick="toggleModel(this)">Claude Haiku</button>
+    </div>
+
+    <button class="btn btn-primary" onclick="runModelCompare()" id="mc-go">Run Comparison</button>
+
+    <div id="mc-prog" style="display:none;">
+        <div class="progress"><div class="progress-bar" id="mc-pbar" style="width:0%"></div></div>
+        <p id="mc-ptxt" style="font-size:0.82rem; color:var(--text-3);"></p>
+    </div>
+
+    <div id="mc-out" style="display:none;">
+        <div class="hr"></div>
+        <div id="mc-metrics" class="grid grid-4" style="margin-bottom:22px;"></div>
+
+        <div class="table-wrap"><table id="mc-tbl"><thead></thead><tbody></tbody></table></div>
+
+        <div class="hr"></div>
+        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Response Time</h3>
+        <div style="max-width:500px;"><canvas id="mc-chart"></canvas></div>
+
+        <div class="hr"></div>
+        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Answers</h3>
+        <div class="tabs" id="mc-tabs"></div>
+        <div id="mc-panels"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.model-toggle {
+    padding: 7px 14px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-4);
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 0.84rem;
+    font-weight: 500;
+    transition: all 0.15s;
+    text-decoration: line-through;
+}
+.model-toggle:hover { border-color: var(--border-input); }
+.model-toggle.active {
+    border-color: var(--accent);
+    background: rgba(16,163,127,0.08);
+    color: var(--text);
+    text-decoration: none;
+}
+</style>
+<script>
+let mcChart = null;
+
+fetch('/api/datasets').then(r=>r.json()).then(ds=>{
+    const s=document.getElementById('mc-dataset');
+    ds.forEach(d=>{const o=document.createElement('option');o.value=d.name;o.textContent=d.description;s.appendChild(o);});
+    loadMCPresets();
+});
+document.getElementById('mc-dataset').addEventListener('change', loadMCPresets);
+
+function loadMCPresets(){
+    fetch(`/api/preset-questions/${document.getElementById('mc-dataset').value}`).then(r=>r.json()).then(qs=>{
+        const s=document.getElementById('mc-preset');
+        s.innerHTML='<option value="">Custom question...</option>';
+        qs.forEach(q=>{const o=document.createElement('option');o.value=JSON.stringify(q);o.textContent=`[${q.id}] ${q.question}`;s.appendChild(o);});
+    });
+}
+
+function toggleModel(el){ el.classList.toggle('active'); }
+
+function getSelectedModels(){
+    return [...document.querySelectorAll('.model-toggle.active')].map(b=>({
+        model: b.dataset.model,
+        provider: b.dataset.provider,
+        label: b.textContent
+    }));
+}
+
+async function runModelCompare(){
+    const pv=document.getElementById('mc-preset').value;
+    let question;
+    if(pv){question=JSON.parse(pv).question;}else{question=document.getElementById('mc-custom').value.trim();}
+    if(!question)return;
+
+    const models=getSelectedModels();
+    if(!models.length)return;
+
+    const dataset=document.getElementById('mc-dataset').value;
+    const agent=document.getElementById('mc-agent').value;
+
+    document.getElementById('mc-go').disabled=true;
+    document.getElementById('mc-prog').style.display='block';
+    document.getElementById('mc-out').style.display='none';
+
+    const results=[];
+    for(let i=0;i<models.length;i++){
+        const m=models[i];
+        document.getElementById('mc-pbar').style.width=((i/models.length)*100)+'%';
+        document.getElementById('mc-ptxt').textContent=`Running ${m.label}...`;
+
+        try{
+            const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({question,dataset,agent,model:m.model,provider:m.provider,temperature:0.2})});
+            const data=await r.json();
+            results.push({...data, model_label:m.label, model:m.model});
+        }catch(e){
+            results.push({model_label:m.label, model:m.model, error:e.message, success:false, time:0});
+        }
+    }
+
+    document.getElementById('mc-pbar').style.width='100%';
+    document.getElementById('mc-ptxt').textContent='Complete!';
+    document.getElementById('mc-go').disabled=false;
+    renderMCResults(results);
+}
+
+function renderMCResults(results){
+    document.getElementById('mc-out').style.display='block';
+
+    // Metrics
+    const successful=results.filter(r=>r.success);
+    const fastest=successful.length?successful.reduce((a,b)=>a.time<b.time?a:b):null;
+    const withWeights=successful.filter(r=>r.weights_used).length;
+
+    document.getElementById('mc-metrics').innerHTML=`
+        <div class="metric"><div class="num">${results.length}</div><div class="lbl">Models Tested</div></div>
+        <div class="metric"><div class="num green">${successful.length}/${results.length}</div><div class="lbl">Succeeded</div></div>
+        <div class="metric"><div class="num blue">${fastest?fastest.time.toFixed(1)+'s':'N/A'}</div><div class="lbl">Fastest${fastest?' · '+fastest.model_label:''}</div></div>
+        <div class="metric"><div class="num">${withWeights}/${successful.length}</div><div class="lbl">Used Weights</div></div>
+    `;
+
+    // Table
+    const th=document.querySelector('#mc-tbl thead'),tb=document.querySelector('#mc-tbl tbody');
+    th.innerHTML='<tr><th>Model</th><th>Time</th><th>Weights</th><th>Status</th></tr>';
+    tb.innerHTML=results.map(r=>
+        `<tr><td><strong>${r.model_label}</strong></td><td>${r.time?.toFixed(1)||'0'}s</td><td>${r.weights_used?'<span style="color:var(--accent)">&#10003;</span>':'<span style="color:#f43f5e">&#10007;</span>'}</td><td>${r.success?'<span style="color:var(--accent)">&#10003;</span>':'<span style="color:#f43f5e">&#10007;</span>'}</td></tr>`
+    ).join('');
+
+    // Chart
+    const ctx=document.getElementById('mc-chart').getContext('2d');
+    if(mcChart)mcChart.destroy();
+    mcChart=new Chart(ctx,{type:'bar',data:{
+        labels:results.map(r=>r.model_label),
+        datasets:[{data:results.map(r=>r.time||0),backgroundColor:['#10a37f','#3b82f6','#ab68ff','#f59e0b'],borderRadius:6,barPercentage:0.5}]},
+        options:{responsive:true,plugins:{legend:{display:false}},scales:{
+            y:{beginAtZero:true,grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8e8e8e'}},
+            x:{grid:{display:false},ticks:{color:'#b4b4b4'}}}}
+    });
+
+    // Tabs
+    const tabs=document.getElementById('mc-tabs'),panels=document.getElementById('mc-panels');
+    tabs.innerHTML='';panels.innerHTML='';
+    results.forEach((r,i)=>{
+        const b=document.createElement('button');b.className='tab'+(i===0?' active':'');b.textContent=r.model_label;
+        b.onclick=()=>{tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));panels.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));b.classList.add('active');document.getElementById('mcp'+i).classList.add('active');};
+        tabs.appendChild(b);
+        const p=document.createElement('div');p.className='tab-panel'+(i===0?' active':'');p.id='mcp'+i;
+        p.innerHTML=r.success?marked.parse(r.answer||'No answer'):`<div class="alert alert-error">${r.error||r.errors?.join(', ')||'Failed'}</div>`;
+        panels.appendChild(p);
+    });
+}
+</script>
+{% endblock %}

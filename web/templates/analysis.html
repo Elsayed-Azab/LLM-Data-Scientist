@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% set active = "analysis" %}
+{% block title %}Analysis{% endblock %}
+
+{% block sidebar %}
+<div style="margin-top:10px;">
+    <h5>Analysis</h5>
+    <label class="ctrl-label">Dataset</label>
+    <select id="dataset" class="ctrl-select" onchange="loadSuggestions()"></select>
+    <label class="ctrl-label" style="margin-top:10px;">Agent</label>
+    <input type="hidden" id="agent" value="single">
+    <div class="agent-picker">
+        <button class="agent-btn active" data-agent="single" onclick="pickAgent(this)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l2 2"/></svg>
+            <span class="agent-btn-name">Single</span>
+            <span class="agent-btn-desc">Fast, one-shot</span>
+        </button>
+        <button class="agent-btn" data-agent="multi" onclick="pickAgent(this)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span class="agent-btn-name">Multi</span>
+            <span class="agent-btn-desc">Plan + review</span>
+        </button>
+        <button class="agent-btn" data-agent="rag" onclick="pickAgent(this)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="12" y1="6" x2="16" y2="6"/><line x1="12" y1="10" x2="16" y2="10"/></svg>
+            <span class="agent-btn-name">RAG</span>
+            <span class="agent-btn-desc">Codebook-aware</span>
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+
+    <div class="page-head" style="flex-shrink:0; padding-top:24px;">
+        <h1>Interactive Analysis</h1>
+        <p class="sub">Ask questions about survey data</p>
+    </div>
+
+    <div id="pills" class="pills" style="flex-shrink:0;"></div>
+
+    <div class="chat-wrap" id="chat"></div>
+
+    <div class="chat-bar">
+        <div class="chat-input-wrap">
+            <textarea id="q" placeholder="Message LLM Data Scientist..." rows="1"
+                      oninput="this.style.height='24px';this.style.height=this.scrollHeight+'px';"
+                      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
+            <button class="send-btn" onclick="send()" id="send-btn" title="Send">&#8593;</button>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function pickAgent(el) {
+    document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('agent').value = el.dataset.agent;
+}
+
+const chat = document.getElementById('chat');
+const qInput = document.getElementById('q');
+
+fetch('/api/datasets').then(r=>r.json()).then(ds => {
+    const s = document.getElementById('dataset');
+    ds.forEach(d => { const o=document.createElement('option'); o.value=d.name; o.textContent=d.description; s.appendChild(o); });
+    loadSuggestions();
+});
+
+function loadSuggestions() {
+    fetch(`/api/questions/${document.getElementById('dataset').value}`).then(r=>r.json()).then(qs => {
+        const c = document.getElementById('pills');
+        c.innerHTML = '';
+        qs.forEach(q => {
+            const b = document.createElement('button');
+            b.className = 'pill';
+            b.textContent = q;
+            b.onclick = () => { qInput.value = q; qInput.focus(); };
+            c.appendChild(b);
+        });
+    });
+}
+
+function addMsg(role, html, meta) {
+    const d = document.createElement('div');
+    d.className = `msg ${role}`;
+
+    const avatar = role === 'user' ? '&#128100;' : '&#10024;';
+    const name = role === 'user' ? 'You' : 'LLM Analyst';
+    const parsed = role === 'agent' ? marked.parse(html || '') : `<p>${html}</p>`;
+
+    let metaHtml = '';
+    if (meta) {
+        metaHtml = '<div class="msg-meta">';
+        if (meta.time) metaHtml += `<span class="badge badge-gray">${meta.time}s</span>`;
+        if (meta.weights_used !== undefined)
+            metaHtml += meta.weights_used
+                ? '<span class="badge badge-green">Weights applied</span>'
+                : '<span class="badge badge-red">Weights missing</span>';
+        if (meta.retries > 0) metaHtml += `<span class="badge badge-gray">${meta.retries} retries</span>`;
+        metaHtml += '</div>';
+    }
+
+    d.innerHTML = `
+        <div class="msg-inner">
+            <div class="msg-avatar">${avatar}</div>
+            <div class="msg-content">
+                <div class="msg-role">${name}</div>
+                <div class="msg-text">${parsed}</div>
+                ${metaHtml}
+            </div>
+        </div>`;
+    chat.appendChild(d);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function addLoading(statusText) {
+    // Remove existing loading if any
+    const old = document.getElementById('loading');
+    if (old) old.remove();
+
+    const d = document.createElement('div');
+    d.className = 'msg agent';
+    d.id = 'loading';
+    d.innerHTML = `
+        <div class="msg-inner">
+            <div class="msg-avatar">&#10024;</div>
+            <div class="msg-content">
+                <div class="msg-role">LLM Analyst</div>
+                <div class="msg-text">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div class="typing-dots"><span></span><span></span><span></span></div>
+                        <span id="loading-status" style="font-size:0.85rem; color:var(--text-3);">${statusText || ''}</span>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    chat.appendChild(d);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function updateLoadingStatus(text) {
+    const el = document.getElementById('loading-status');
+    if (el) el.textContent = text;
+}
+
+async function send() {
+    const q = qInput.value.trim();
+    if (!q) return;
+    const llm = getLLM();
+    addMsg('user', q);
+    qInput.value = '';
+    qInput.style.height = '24px';
+    addLoading('Starting...');
+    document.getElementById('send-btn').disabled = true;
+
+    try {
+        // Use SSE streaming endpoint
+        const res = await fetch('/api/analyze/stream', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                question: q,
+                dataset: document.getElementById('dataset').value,
+                agent: document.getElementById('agent').value,
+                model: llm.model, provider: llm.provider, temperature: llm.temperature
+            })
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, {stream: true});
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const msg = JSON.parse(line.slice(6));
+
+                if (msg.type === 'status') {
+                    updateLoadingStatus(msg.message);
+                } else if (msg.type === 'result') {
+                    const el = document.getElementById('loading'); if (el) el.remove();
+                    addMsg('agent', msg.data.answer, {
+                        time: msg.data.time,
+                        weights_used: msg.data.weights_used,
+                        retries: msg.data.retries
+                    });
+                } else if (msg.type === 'error') {
+                    const el = document.getElementById('loading'); if (el) el.remove();
+                    addMsg('agent', `**Error:** ${msg.message}`);
+                }
+            }
+        }
+    } catch(e) {
+        const el = document.getElementById('loading'); if(el) el.remove();
+        addMsg('agent', `**Connection error:** ${e.message}`);
+    }
+    document.getElementById('send-btn').disabled = false;
+}
+</script>
+{% endblock %}

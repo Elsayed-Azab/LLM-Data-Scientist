@@ -1,0 +1,29 @@
+# Data files (too large to index)
+Data/
+
+# Environment
+.env
+.venv/
+__pycache__/
+*.pyc
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ChromaDB
+chroma_db/
+
+# Experiment results
+experiments/results/
+
+# Claude Code
+.claude/
+
+# OS
+*.swp
+*.swo

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% set active = "home" %}
+
+{% block content %}
+<div class="content">
+    <div class="hero-center">
+        <h1>LLM Data Scientist</h1>
+        <p>Explore social science survey data with AI-powered analysis. Compare how different LLM architectures reason about real datasets.</p>
+        <div style="margin-top:24px; display:flex; gap:10px; justify-content:center;">
+            <a href="/analysis" class="btn btn-primary">Start analyzing</a>
+            <a href="/comparison" class="btn btn-outline">Compare agents</a>
+        </div>
+    </div>
+
+    <div class="grid grid-3" style="margin-top:40px;">
+        <a href="/analysis" class="card">
+            <div class="card-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+            <h3>Interactive Analysis</h3>
+            <p>Chat with an LLM analyst. Ask questions, get statistical results and interpretations.</p>
+        </a>
+        <a href="/comparison" class="card">
+            <div class="card-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+            <h3>Agent Comparison</h3>
+            <p>Run the same question across Single, Multi-Agent, and RAG. Compare accuracy and speed.</p>
+        </a>
+        <a href="/results" class="card">
+            <div class="card-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
+            <h3>Evaluation Results</h3>
+            <p>Browse past experiments with accuracy heatmaps, charts, and breakdowns.</p>
+        </a>
+    </div>
+
+    <div class="hr"></div>
+
+    <div class="grid grid-2">
+        <div>
+            <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Datasets</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Dataset</th><th>Weight</th></tr></thead>
+                    <tbody>
+                        <tr><td>General Social Survey 1972-2024</td><td><code>wtssps</code></td></tr>
+                        <tr><td>Arab Barometer Wave VIII</td><td><code>WT</code></td></tr>
+                        <tr><td>World Values Survey Wave 7</td><td><code>W_WEIGHT</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div>
+            <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Architectures</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Agent</th><th>Method</th></tr></thead>
+                    <tbody>
+                        <tr><td>Single</td><td>ReAct &mdash; reason + act iteratively</td></tr>
+                        <tr><td>Multi-Agent</td><td>Planner &rarr; Analyst &rarr; Reviewer</td></tr>
+                        <tr><td>RAG</td><td>Codebook retrieval + ReAct</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

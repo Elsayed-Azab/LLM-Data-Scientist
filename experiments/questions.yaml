@@ -1,0 +1,254 @@
+# Analytical questions for evaluating agent architectures.
+# Each question targets a specific dataset and analysis type.
+# ground_truth_type indicates how to validate the answer:
+#   - numeric: compare a key number within tolerance
+#   - categorical: check the top category matches
+#   - directional: check the relationship direction (positive/negative/none)
+#   - descriptive: LLM-as-judge semantic evaluation
+
+questions:
+  # ── Arab Barometer (10 questions) ─────────────────────────────────
+
+  - id: ab_01
+    dataset: arab_barometer
+    type: numeric
+    difficulty: easy
+    question: "What is the weighted average age of respondents in the Arab Barometer?"
+    ground_truth_key: weighted_mean_age
+    hint: "Use variable Q1001 for age and WT for weights."
+
+  - id: ab_02
+    dataset: arab_barometer
+    type: categorical
+    difficulty: easy
+    question: "Which country has the most respondents in the Arab Barometer Wave VIII?"
+    ground_truth_key: top_country
+    hint: "Use variable COUNTRY."
+
+  - id: ab_03
+    dataset: arab_barometer
+    type: directional
+    difficulty: medium
+    question: "Is there a relationship between education level and trust in government in the Arab Barometer?"
+    ground_truth_key: education_trust_direction
+    hint: "Use Q101 for education, Q201A_1 for trust in government."
+
+  - id: ab_04
+    dataset: arab_barometer
+    type: descriptive
+    difficulty: medium
+    question: "How does internet usage vary across countries in the Arab Barometer?"
+    ground_truth_key: internet_by_country
+    hint: "Use Q409 for internet usage, COUNTRY for country."
+
+  - id: ab_05
+    dataset: arab_barometer
+    type: numeric
+    difficulty: hard
+    question: "What percentage of respondents in the Arab Barometer consider the economic situation in their country to be very bad?"
+    ground_truth_key: pct_econ_very_bad
+    hint: "Use Q101 for economic assessment (4=very bad)."
+
+  - id: ab_06
+    dataset: arab_barometer
+    type: numeric
+    difficulty: easy
+    question: "How many total respondents are in the Arab Barometer Wave VIII dataset?"
+    ground_truth_key: ab_total_respondents
+    hint: "Count the total rows in the dataset."
+
+  - id: ab_07
+    dataset: arab_barometer
+    type: descriptive
+    difficulty: medium
+    question: "What is the gender distribution of respondents in the Arab Barometer?"
+    ground_truth_key: ab_gender_distribution
+    hint: "Use Q1002 for gender."
+
+  - id: ab_08
+    dataset: arab_barometer
+    type: directional
+    difficulty: medium
+    question: "Is age associated with internet usage in the Arab Barometer?"
+    ground_truth_key: ab_age_internet_direction
+    hint: "Use Q1001 for age and Q409 for internet usage."
+
+  - id: ab_09
+    dataset: arab_barometer
+    type: numeric
+    difficulty: hard
+    question: "What is the weighted percentage of respondents who trust the government a great deal in the Arab Barometer?"
+    ground_truth_key: ab_pct_trust_great_deal
+    hint: "Use Q201A_1 for trust in government (1=great deal), WT for weights."
+
+  - id: ab_10
+    dataset: arab_barometer
+    type: descriptive
+    difficulty: hard
+    question: "How does trust in government differ between younger (18-30) and older (50+) respondents in the Arab Barometer?"
+    ground_truth_key: ab_trust_by_age_group
+    hint: "Use Q1001 for age, Q201A_1 for trust, WT for weights."
+
+  # ── World Values Survey (10 questions) ────────────────────────────
+
+  - id: wvs_01
+    dataset: wvs
+    type: numeric
+    difficulty: easy
+    question: "What is the weighted mean life satisfaction score in the World Values Survey Wave 7?"
+    ground_truth_key: weighted_mean_life_satisfaction
+    hint: "Use Q49 for life satisfaction (1-10 scale), W_WEIGHT for weights."
+
+  - id: wvs_02
+    dataset: wvs
+    type: categorical
+    difficulty: easy
+    question: "Which country contributed the most respondents to the World Values Survey Wave 7?"
+    ground_truth_key: top_country_wvs
+    hint: "Use B_COUNTRY_ALPHA."
+
+  - id: wvs_03
+    dataset: wvs
+    type: directional
+    difficulty: medium
+    question: "Is there a relationship between income level and happiness in the World Values Survey?"
+    ground_truth_key: income_happiness_direction
+    hint: "Use Q288 for income scale, Q46 for happiness."
+
+  - id: wvs_04
+    dataset: wvs
+    type: descriptive
+    difficulty: medium
+    question: "How does importance of religion vary by world region in the World Values Survey?"
+    ground_truth_key: religion_by_region
+    hint: "Use Q6 for importance of religion, N_REGION_WVS for region."
+
+  - id: wvs_05
+    dataset: wvs
+    type: directional
+    difficulty: hard
+    question: "Is trust in people associated with democratic values in the World Values Survey?"
+    ground_truth_key: trust_democracy_direction
+    hint: "Use Q57 for general trust, Q235 for importance of democracy."
+
+  - id: wvs_06
+    dataset: wvs
+    type: numeric
+    difficulty: easy
+    question: "What is the weighted mean happiness score in the World Values Survey?"
+    ground_truth_key: wvs_weighted_mean_happiness
+    hint: "Use Q46 for happiness (1-4 scale), W_WEIGHT for weights."
+
+  - id: wvs_07
+    dataset: wvs
+    type: numeric
+    difficulty: easy
+    question: "How many countries are represented in the World Values Survey Wave 7?"
+    ground_truth_key: wvs_num_countries
+    hint: "Count unique values of B_COUNTRY_ALPHA."
+
+  - id: wvs_08
+    dataset: wvs
+    type: directional
+    difficulty: medium
+    question: "Is education level associated with life satisfaction in the World Values Survey?"
+    ground_truth_key: wvs_educ_satisfaction_direction
+    hint: "Use Q275 for education level, Q49 for life satisfaction."
+
+  - id: wvs_09
+    dataset: wvs
+    type: descriptive
+    difficulty: hard
+    question: "How does gender equality attitudes vary across world regions in the WVS?"
+    ground_truth_key: wvs_gender_equality_by_region
+    hint: "Use Q29 (men make better political leaders) and N_REGION_WVS."
+
+  - id: wvs_10
+    dataset: wvs
+    type: numeric
+    difficulty: medium
+    question: "What percentage of WVS respondents say most people can be trusted?"
+    ground_truth_key: wvs_pct_trust_people
+    hint: "Use Q57 for trust (1=most people can be trusted), W_WEIGHT for weights."
+
+  # ── General Social Survey (10 questions) ──────────────────────────
+
+  - id: gss_01
+    dataset: gss
+    type: numeric
+    difficulty: easy
+    question: "What is the weighted average number of years of education for GSS respondents?"
+    ground_truth_key: weighted_mean_educ
+    hint: "Use educ for years of education, wtssps for weights."
+
+  - id: gss_02
+    dataset: gss
+    type: categorical
+    difficulty: easy
+    question: "What is the most common marital status among GSS respondents?"
+    ground_truth_key: top_marital_status
+    hint: "Use marital."
+
+  - id: gss_03
+    dataset: gss
+    type: directional
+    difficulty: medium
+    question: "Is there a relationship between education and income in the GSS?"
+    ground_truth_key: educ_income_direction
+    hint: "Use educ for education years, realinc for family income."
+
+  - id: gss_04
+    dataset: gss
+    type: descriptive
+    difficulty: medium
+    question: "How has general happiness changed over the decades in the GSS?"
+    ground_truth_key: happiness_trend
+    hint: "Use happy for happiness, year for survey year."
+
+  - id: gss_05
+    dataset: gss
+    type: directional
+    difficulty: hard
+    question: "Is political party affiliation associated with views on government spending in the GSS?"
+    ground_truth_key: party_spending_direction
+    hint: "Use partyid for party, natspac/natenvir/natheal for spending views."
+
+  - id: gss_06
+    dataset: gss
+    type: numeric
+    difficulty: easy
+    question: "What is the weighted average age of GSS respondents?"
+    ground_truth_key: gss_weighted_mean_age
+    hint: "Use age for respondent age, wtssps for weights."
+
+  - id: gss_07
+    dataset: gss
+    type: numeric
+    difficulty: easy
+    question: "How many total respondents are in the GSS dataset?"
+    ground_truth_key: gss_total_respondents
+    hint: "Count total rows."
+
+  - id: gss_08
+    dataset: gss
+    type: directional
+    difficulty: medium
+    question: "Is there a relationship between age and happiness in the GSS?"
+    ground_truth_key: gss_age_happiness_direction
+    hint: "Use age and happy, wtssps for weights."
+
+  - id: gss_09
+    dataset: gss
+    type: descriptive
+    difficulty: medium
+    question: "How does marital status distribution differ between men and women in the GSS?"
+    ground_truth_key: gss_marital_by_sex
+    hint: "Use marital for marital status, sex for gender."
+
+  - id: gss_10
+    dataset: gss
+    type: numeric
+    difficulty: hard
+    question: "What percentage of GSS respondents report being very happy?"
+    ground_truth_key: gss_pct_very_happy
+    hint: "Use happy (1=very happy), wtssps for weights."

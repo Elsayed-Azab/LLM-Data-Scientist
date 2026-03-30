@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% set active = "matrix" %}
+{% block title %}Results Matrix{% endblock %}
+
+{% block content %}
+<div class="content">
+    <div class="page-head">
+        <h1>Results Matrix</h1>
+        <p class="sub">3 agents x 3 datasets — full comparison</p>
+    </div>
+
+    <div class="hr"></div>
+
+    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Accuracy (%)</h3>
+    <div class="table-wrap">
+        <table id="acc-matrix">
+            <thead>
+                <tr><th>Dataset</th><th>Single Agent</th><th>Multi-Agent</th><th>RAG Agent</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Arab Barometer</strong></td>
+                    <td style="text-align:center;" class="cell" data-val="0.41">41%</td>
+                    <td style="text-align:center;" class="cell best" data-val="0.87">87%</td>
+                    <td style="text-align:center;" class="cell" data-val="0.84">84%</td>
+                </tr>
+                <tr>
+                    <td><strong>WVS</strong></td>
+                    <td style="text-align:center;" class="cell" data-val="0.78">78%</td>
+                    <td style="text-align:center;" class="cell best" data-val="0.80">80%</td>
+                    <td style="text-align:center;" class="cell" data-val="0.74">74%</td>
+                </tr>
+                <tr>
+                    <td><strong>GSS</strong></td>
+                    <td style="text-align:center;" class="cell" data-val="0.57">57%</td>
+                    <td style="text-align:center;" class="cell" data-val="0.50">50%</td>
+                    <td style="text-align:center;" class="cell best" data-val="0.58">58%</td>
+                </tr>
+                <tr style="font-weight:700; border-top:2px solid var(--border-input);">
+                    <td><strong>Average</strong></td>
+                    <td style="text-align:center;" class="cell" data-val="0.59">59%</td>
+                    <td style="text-align:center;" class="cell best" data-val="0.72">72%</td>
+                    <td style="text-align:center;" class="cell best" data-val="0.72">72%</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="hr"></div>
+
+    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Survey Weight Usage (%)</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Dataset</th><th>Single Agent</th><th>Multi-Agent</th><th>RAG Agent</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Arab Barometer</strong></td>
+                    <td style="text-align:center;" class="cell" data-val="0.60">60%</td>
+                    <td style="text-align:center;" class="cell best" data-val="1.00">100%</td>
+                    <td style="text-align:center;" class="cell" data-val="0.90">90%</td>
+                </tr>
+                <tr>
+                    <td><strong>WVS</strong></td>
+                    <td style="text-align:center;" class="cell" data-val="0.80">80%</td>
+                    <td style="text-align:center;" class="cell best" data-val="1.00">100%</td>
+                    <td style="text-align:center;" class="cell" data-val="0.90">90%</td>
+                </tr>
+                <tr>
+                    <td><strong>GSS</strong></td>
+                    <td style="text-align:center;" class="cell best" data-val="0.90">90%</td>
+                    <td style="text-align:center;" class="cell best" data-val="0.90">90%</td>
+                    <td style="text-align:center;" class="cell best" data-val="0.90">90%</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="hr"></div>
+
+    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Error Rate (%)</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Dataset</th><th>Single Agent</th><th>Multi-Agent</th><th>RAG Agent</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Arab Barometer</strong></td>
+                    <td style="text-align:center;" class="cell-err" data-val="0.30">30%</td>
+                    <td style="text-align:center;" class="cell-err best-low" data-val="0.00">0%</td>
+                    <td style="text-align:center;" class="cell-err best-low" data-val="0.00">0%</td>
+                </tr>
+                <tr>
+                    <td><strong>WVS</strong></td>
+                    <td style="text-align:center;" class="cell-err best-low" data-val="0.00">0%</td>
+                    <td style="text-align:center;" class="cell-err best-low" data-val="0.00">0%</td>
+                    <td style="text-align:center;" class="cell-err best-low" data-val="0.00">0%</td>
+                </tr>
+                <tr>
+                    <td><strong>GSS</strong></td>
+                    <td style="text-align:center;" class="cell-err best-low" data-val="0.00">0%</td>
+                    <td style="text-align:center;" class="cell-err" data-val="0.10">10%</td>
+                    <td style="text-align:center;" class="cell-err best-low" data-val="0.00">0%</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="hr"></div>
+
+    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Avg Time per Question (seconds)</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Dataset</th><th>Single Agent</th><th>Multi-Agent</th><th>RAG Agent</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Arab Barometer</strong></td>
+                    <td style="text-align:center;">142s</td>
+                    <td style="text-align:center;">125s</td>
+                    <td style="text-align:center;">94s</td>
+                </tr>
+                <tr>
+                    <td><strong>WVS</strong></td>
+                    <td style="text-align:center;">75s</td>
+                    <td style="text-align:center;">218s</td>
+                    <td style="text-align:center;">85s</td>
+                </tr>
+                <tr>
+                    <td><strong>GSS</strong></td>
+                    <td style="text-align:center;">85s</td>
+                    <td style="text-align:center;">138s</td>
+                    <td style="text-align:center;">73s</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="hr"></div>
+
+    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Overall Comparison</h3>
+    <div style="max-width:700px;">
+        <canvas id="overview-chart"></canvas>
+    </div>
+
+    <div class="hr"></div>
+
+    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Key Findings</h3>
+    <div class="grid" style="grid-template-columns: 1fr; gap:12px;">
+        <div style="background:rgba(171,104,255,0.08); border:1px solid rgba(171,104,255,0.2); border-radius:var(--radius-sm); padding:16px;">
+            <strong style="color:var(--purple);">Multi-Agent and RAG tied at 72% average accuracy</strong>
+            <p style="margin-top:4px; font-size:0.88rem; color:var(--text-2);">Both outperform Single Agent (59%) significantly. Multi-Agent excels on Arab Barometer (87%) thanks to the Reviewer catching errors. RAG is strongest on GSS (58%) where codebook context helps identify variable names.</p>
+        </div>
+        <div style="background:rgba(16,163,127,0.08); border:1px solid rgba(16,163,127,0.2); border-radius:var(--radius-sm); padding:16px;">
+            <strong style="color:var(--accent);">Multi-Agent achieves 97% average weight usage</strong>
+            <p style="margin-top:4px; font-size:0.88rem; color:var(--text-2);">The Reviewer agent explicitly checks for survey weight application, achieving 100% on AB and WVS. RAG achieves 90% across all datasets. Single Agent averages 77%.</p>
+        </div>
+        <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius:var(--radius-sm); padding:16px;">
+            <strong style="color:#3b82f6;">RAG is the fastest advanced architecture</strong>
+            <p style="margin-top:4px; font-size:0.88rem; color:var(--text-2);">RAG averages 84s per question vs Multi-Agent's 160s. Single is fastest at 101s but least accurate. RAG offers the best accuracy-to-speed ratio.</p>
+        </div>
+        <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.2); border-radius:var(--radius-sm); padding:16px;">
+            <strong style="color:#f59e0b;">GSS remains the most challenging dataset</strong>
+            <p style="margin-top:4px; font-size:0.88rem; color:var(--text-2);">All agents score 50-58% on GSS vs 74-87% on other datasets. The 6000+ columns and coded variable names make it harder, though the search_columns tool improved results from the earlier 0-38% range.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Color cells based on value
+document.querySelectorAll('.cell').forEach(td => {
+    const v = parseFloat(td.dataset.val);
+    const g = Math.round(v * 180);
+    const r = Math.round((1 - v) * 120);
+    td.style.background = `rgba(${r}, ${g}, 60, 0.2)`;
+    td.style.fontWeight = '600';
+});
+document.querySelectorAll('.cell.best').forEach(td => {
+    td.style.background = 'rgba(16,163,127,0.25)';
+    td.style.color = 'var(--accent)';
+});
+
+// Error rate: lower is better (reverse coloring)
+document.querySelectorAll('.cell-err').forEach(td => {
+    const v = parseFloat(td.dataset.val);
+    const r = Math.round(v * 180);
+    const g = Math.round((1 - v) * 120);
+    td.style.background = `rgba(${r}, ${g > 40 ? g : 40}, 60, 0.2)`;
+    td.style.fontWeight = '600';
+});
+document.querySelectorAll('.cell-err.best-low').forEach(td => {
+    td.style.background = 'rgba(16,163,127,0.25)';
+    td.style.color = 'var(--accent)';
+});
+
+// Overview chart
+new Chart(document.getElementById('overview-chart'), {
+    type: 'bar',
+    data: {
+        labels: ['Arab Barometer', 'WVS', 'GSS'],
+        datasets: [
+            { label: 'Single', data: [41, 78, 57], backgroundColor: '#3b82f6', borderRadius: 6, barPercentage: 0.7 },
+            { label: 'Multi-Agent', data: [87, 80, 50], backgroundColor: '#ab68ff', borderRadius: 6, barPercentage: 0.7 },
+            { label: 'RAG', data: [84, 74, 58], backgroundColor: '#10a37f', borderRadius: 6, barPercentage: 0.7 },
+        ]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { labels: { color: '#b4b4b4', font: { size: 13 } } }
+        },
+        scales: {
+            y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8e8e8e', callback: v => v + '%' } },
+            x: { grid: { display: false }, ticks: { color: '#b4b4b4' } }
+        }
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+# Data files (too large for git)
+Data/
+
+# Environment
+.env
+.venv/
+__pycache__/
+*.pyc
+
+# Build artifacts
+*.egg-info/
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ChromaDB
+chroma_db/
+
+# Experiment results (optional: remove this line to track results)
+experiments/results/
+
+# OS
+*.swp
+*.swo

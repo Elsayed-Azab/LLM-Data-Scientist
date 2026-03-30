@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% set active = "comparison" %}
+{% block title %}Agent Comparison{% endblock %}
+
+{% block sidebar %}
+<div style="margin-top:10px;">
+    <h5>Comparison</h5>
+    <label class="ctrl-label">Dataset</label>
+    <select id="ds" class="ctrl-select" onchange="loadPresets()"></select>
+    <label class="ctrl-label" style="margin-top:10px;">Agents</label>
+    <div class="agent-picker">
+        <button class="agent-toggle active" data-agent="single" onclick="toggleAgent(this)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l2 2"/></svg>
+            <span class="agent-btn-name">Single</span>
+        </button>
+        <button class="agent-toggle active" data-agent="multi" onclick="toggleAgent(this)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span class="agent-btn-name">Multi</span>
+        </button>
+        <button class="agent-toggle active" data-agent="rag" onclick="toggleAgent(this)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <span class="agent-btn-name">RAG</span>
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="content">
+    <div class="page-head">
+        <h1>Agent Comparison</h1>
+        <p class="sub">Same question, different architectures</p>
+    </div>
+
+    <div class="hr"></div>
+
+    <label class="ctrl-label">Preset question</label>
+    <select id="preset" class="ctrl-select" style="margin:6px 0 10px;"></select>
+    <input type="text" id="custom" placeholder="Or type a custom question..."
+           style="width:100%; padding:10px 14px; background:var(--bg-input); border:1px solid var(--border-input);
+                  border-radius:var(--radius-sm); color:var(--text); font-size:0.9rem; font-family:var(--font);
+                  outline:none; margin-bottom:16px;">
+
+    <button class="btn btn-primary" onclick="run()" id="go">Run Comparison</button>
+
+    <div id="prog" style="display:none;">
+        <div class="progress"><div class="progress-bar" id="pbar" style="width:0%"></div></div>
+        <p id="ptxt" style="font-size:0.82rem; color:var(--text-3);"></p>
+    </div>
+
+    <div id="out" style="display:none;">
+        <div class="hr"></div>
+        <div id="metrics" class="grid grid-4" style="margin-bottom:22px;"></div>
+
+        <div class="table-wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+
+        <div class="hr"></div>
+        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Performance</h3>
+        <div style="max-width:480px;"><canvas id="chart"></canvas></div>
+
+        <div class="hr"></div>
+        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Answers</h3>
+        <div class="tabs" id="atabs"></div>
+        <div id="apanels"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleAgent(el) {
+    el.classList.toggle('active');
+}
+
+const AN={single:'Single Agent',multi:'Multi-Agent',rag:'RAG Agent'};
+let ch=null;
+
+fetch('/api/datasets').then(r=>r.json()).then(ds=>{
+    const s=document.getElementById('ds');
+    ds.forEach(d=>{const o=document.createElement('option');o.value=d.name;o.textContent=d.description;s.appendChild(o);});
+    loadPresets();
+});
+
+function loadPresets(){
+    fetch(`/api/preset-questions/${document.getElementById('ds').value}`).then(r=>r.json()).then(qs=>{
+        const s=document.getElementById('preset');
+        s.innerHTML='<option value="">Custom question...</option>';
+        qs.forEach(q=>{const o=document.createElement('option');o.value=JSON.stringify(q);o.textContent=`[${q.id}] ${q.question}`;s.appendChild(o);});
+    });
+}
+
+async function run(){
+    const pv=document.getElementById('preset').value;
+    let q,qid=null;
+    if(pv){const p=JSON.parse(pv);q=p.question;qid=p.id;}else q=document.getElementById('custom').value.trim();
+    if(!q)return;
+    const agents=[...document.querySelectorAll('.agent-toggle.active')].map(b=>b.dataset.agent);
+    if(!agents.length)return;
+    const llm=getLLM();
+    document.getElementById('go').disabled=true;
+    document.getElementById('prog').style.display='block';
+    document.getElementById('out').style.display='none';
+    document.getElementById('pbar').style.width='15%';
+    document.getElementById('ptxt').textContent='Running agents...';
+
+    const r=await fetch('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({question:q,dataset:document.getElementById('ds').value,agents,model:llm.model,provider:llm.provider,temperature:llm.temperature,question_id:qid})});
+    const data=await r.json();
+    document.getElementById('pbar').style.width='100%';
+    document.getElementById('ptxt').textContent='Complete!';
+    document.getElementById('go').disabled=false;
+    if(data.error){document.getElementById('ptxt').textContent=`Error: ${data.error}`;return;}
+    render(data.results);
+}
+
+function render(res){
+    document.getElementById('out').style.display='block';
+    const best=res.reduce((a,b)=>((a.accuracy||0)>(b.accuracy||0)?a:b));
+    const fast=res.reduce((a,b)=>(a.time<b.time?a:b));
+    document.getElementById('metrics').innerHTML=`
+        <div class="metric"><div class="num green">${best.accuracy!==undefined?(best.accuracy*100).toFixed(0)+'%':'N/A'}</div><div class="lbl">Best Accuracy</div></div>
+        <div class="metric"><div class="num blue">${fast.time?.toFixed(1)}s</div><div class="lbl">Fastest</div></div>
+        <div class="metric"><div class="num">${res.filter(r=>r.weights_used).length}/${res.length}</div><div class="lbl">Used Weights</div></div>
+        <div class="metric"><div class="num">${res.filter(r=>r.success).length}/${res.length}</div><div class="lbl">Succeeded</div></div>`;
+
+    const th=document.querySelector('#tbl thead'),tb=document.querySelector('#tbl tbody');
+    let cols=['Agent','Time','Retries','Weights','Status'];
+    if(res[0]?.accuracy!==undefined)cols.push('Accuracy');
+    th.innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
+    tb.innerHTML=res.map(r=>{
+        let cells=[AN[r.agent]||r.agent,r.time?.toFixed(1)+'s',r.retries||0,
+            r.weights_used?'<span style="color:var(--accent)">&#10003;</span>':'<span style="color:#f43f5e">&#10007;</span>',
+            r.success?'<span style="color:var(--accent)">&#10003;</span>':'<span style="color:#f43f5e">&#10007;</span>'];
+        if(r.accuracy!==undefined)cells.push((r.accuracy*100).toFixed(0)+'%');
+        return '<tr>'+cells.map(c=>`<td>${c}</td>`).join('')+'</tr>';
+    }).join('');
+
+    const ctx=document.getElementById('chart').getContext('2d');
+    if(ch)ch.destroy();
+    ch=new Chart(ctx,{type:'bar',data:{labels:res.map(r=>AN[r.agent]||r.agent),datasets:[{data:res.map(r=>r.time||0),backgroundColor:['#10a37f','#ab68ff','#3b82f6'],borderRadius:6,barPercentage:0.5}]},
+        options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8e8e8e'}},x:{grid:{display:false},ticks:{color:'#b4b4b4'}}}}});
+
+    const tabs=document.getElementById('atabs'),panels=document.getElementById('apanels');
+    tabs.innerHTML='';panels.innerHTML='';
+    res.forEach((r,i)=>{
+        const b=document.createElement('button');b.className='tab'+(i===0?' active':'');b.textContent=AN[r.agent]||r.agent;
+        b.onclick=()=>{tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));panels.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));b.classList.add('active');document.getElementById('p'+i).classList.add('active');};
+        tabs.appendChild(b);
+        const p=document.createElement('div');p.className='tab-panel'+(i===0?' active':'');p.id='p'+i;
+        p.innerHTML=r.success?marked.parse(r.answer||'No answer'):`<div class="alert alert-error">${r.errors?.join(', ')}</div>`;
+        panels.appendChild(p);
+    });
+}
+</script>
+{% endblock %}

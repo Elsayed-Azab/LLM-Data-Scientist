@@ -1,0 +1,39 @@
+llm:
+  # Default model — used when no --model flag is passed
+  model: "gpt-4o"
+  provider: null  # auto-detected from model name; set to "openai" or "anthropic" to force
+  temperature: 0.2
+  max_tokens: 4096
+
+  # Available models for reference:
+  # OpenAI:    gpt-4o, gpt-4o-mini, gpt-4-turbo, o1, o3-mini
+  # Anthropic: claude-sonnet-4-20250514, claude-opus-4-20250514, claude-haiku-4-5-20251001
+
+datasets:
+  gss:
+    path: "Data/GSS_stata/gss7224_r2.dta"
+    weight_column: "wtssps"
+    format: "stata"
+    description: "General Social Survey 1972-2024"
+
+  arab_barometer:
+    path: "Data/drive-download-20260327T185631Z-3-001/ArabBarometer_WaveVIII_English_v3.csv"
+    weight_column: "WT"
+    format: "csv"
+    description: "Arab Barometer Wave VIII"
+
+  wvs:
+    path: "Data/WVS_Cross-National_Wave_7_csv_v6_0.csv"
+    weight_column: "W_WEIGHT"
+    format: "csv"
+    description: "World Values Survey Wave 7"
+
+execution:
+  timeout_seconds: 120
+  max_retries: 3
+
+rag:
+  chunk_size: 500
+  chunk_overlap: 50
+  top_k: 5
+  persist_dir: "chroma_db"

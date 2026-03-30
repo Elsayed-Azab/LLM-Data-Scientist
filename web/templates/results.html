@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% set active = "results" %}
+{% block title %}Evaluation Results{% endblock %}
+
+{% block sidebar %}
+<div style="margin-top:10px;">
+    <h5>Results</h5>
+    <label class="ctrl-label">Results file</label>
+    <select id="rf" class="ctrl-select" onchange="load()"></select>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="content">
+    <div class="page-head">
+        <h1>Evaluation Results</h1>
+        <p class="sub">Browse past experiments and evaluation reports</p>
+    </div>
+
+    <div id="empty" class="alert alert-info" style="display:none;">
+        No experiment results found. Run an evaluation to generate data.<br>
+        <code style="color:var(--text);">.venv/bin/python experiments/run_evaluation.py</code>
+    </div>
+
+    <div id="content" style="display:none;">
+        <div class="hr"></div>
+
+        <div id="top-metrics" class="grid grid-4" style="margin-bottom:24px;"></div>
+
+        <div class="hr"></div>
+        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Agent Summary</h3>
+        <div class="table-wrap"><table id="sum-tbl"><thead></thead><tbody></tbody></table></div>
+
+        <div class="hr"></div>
+        <div class="grid grid-2">
+            <div>
+                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Accuracy</h3>
+                <canvas id="acc-c"></canvas>
+            </div>
+            <div>
+                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Execution Time</h3>
+                <canvas id="tm-c"></canvas>
+            </div>
+        </div>
+
+        <div class="hr"></div>
+        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Per-Question Breakdown</h3>
+        <div class="table-wrap"><table id="det-tbl"><thead></thead><tbody></tbody></table></div>
+
+        <div class="hr"></div>
+        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Accuracy Heatmap</h3>
+        <div class="table-wrap"><table id="heat-tbl"><thead></thead><tbody></tbody></table></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let ac=null, tc=null;
+const CL = ['#10a37f','#ab68ff','#3b82f6','#f59e0b'];
+const CO = {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8e8e8e' } },
+        x: { grid: { display: false }, ticks: { color: '#b4b4b4' } }
+    }
+};
+
+fetch('/api/results/list').then(r => r.json()).then(files => {
+    if (!files.length) { document.getElementById('empty').style.display = 'block'; return; }
+    const s = document.getElementById('rf');
+    files.forEach(f => {
+        const o = document.createElement('option');
+        o.value = f; o.textContent = f; s.appendChild(o);
+    });
+    load();
+});
+
+async function load() {
+    const f = document.getElementById('rf').value;
+    if (!f) return;
+    const data = await (await fetch(`/api/results/${f}`)).json();
+    if (!data.length) return;
+    document.getElementById('content').style.display = 'block';
+    if ('accuracy' in data[0]) renderEval(data); else renderExp(data);
+}
+
+function renderEval(data) {
+    const agents = [...new Set(data.map(d => d.agent))];
+    const S = agents.map(a => {
+        const R = data.filter(d => d.agent === a);
+        const n = R.length;
+        return {
+            agent: a, n,
+            acc: R.reduce((s,r) => s + r.accuracy, 0) / n,
+            comp: R.reduce((s,r) => s + r.completeness, 0) / n,
+            wp: R.filter(r => r.weight_used).length / n * 100,
+            ep: R.filter(r => r.had_error).length / n * 100,
+            t: R.reduce((s,r) => s + r.execution_time, 0) / n
+        };
+    });
+
+    const best = S.reduce((a,b) => a.acc > b.acc ? a : b);
+    const fast = S.reduce((a,b) => a.t < b.t ? a : b);
+    document.getElementById('top-metrics').innerHTML = `
+        <div class="metric"><div class="num green">${(best.acc*100).toFixed(0)}%</div><div class="lbl">Best Accuracy</div><div class="lbl" style="margin-top:2px;">${best.agent}</div></div>
+        <div class="metric"><div class="num blue">${fast.t.toFixed(1)}s</div><div class="lbl">Fastest</div><div class="lbl" style="margin-top:2px;">${fast.agent}</div></div>
+        <div class="metric"><div class="num">${data.length}</div><div class="lbl">Total Evaluations</div></div>
+        <div class="metric"><div class="num">${agents.length}</div><div class="lbl">Agents Tested</div></div>
+    `;
+
+    // Summary table
+    const th = document.querySelector('#sum-tbl thead'), tb = document.querySelector('#sum-tbl tbody');
+    th.innerHTML = '<tr><th>Agent</th><th>N</th><th>Accuracy</th><th>Completeness</th><th>Weights %</th><th>Error %</th><th>Avg Time</th></tr>';
+    tb.innerHTML = S.map(s =>
+        `<tr><td>${s.agent}</td><td>${s.n}</td><td>${(s.acc*100).toFixed(1)}%</td><td>${(s.comp*100).toFixed(1)}%</td><td>${s.wp.toFixed(0)}%</td><td>${s.ep.toFixed(0)}%</td><td>${s.t.toFixed(1)}s</td></tr>`
+    ).join('');
+
+    // Charts
+    if (ac) ac.destroy();
+    ac = new Chart(document.getElementById('acc-c'), {
+        type: 'bar',
+        data: { labels: S.map(s => s.agent), datasets: [{ data: S.map(s => s.acc), backgroundColor: CL, borderRadius: 6, barPercentage: 0.5 }] },
+        options: CO
+    });
+    if (tc) tc.destroy();
+    tc = new Chart(document.getElementById('tm-c'), {
+        type: 'bar',
+        data: { labels: S.map(s => s.agent), datasets: [{ data: S.map(s => s.t), backgroundColor: CL, borderRadius: 6, barPercentage: 0.5 }] },
+        options: CO
+    });
+
+    // Detail table
+    const dh = document.querySelector('#det-tbl thead'), db = document.querySelector('#det-tbl tbody');
+    dh.innerHTML = '<tr><th>Question</th><th>Agent</th><th>Dataset</th><th>Accuracy</th><th>Weights</th><th>Time</th></tr>';
+    db.innerHTML = data.sort((a,b) => (a.question_id||'').localeCompare(b.question_id||'')).map(d =>
+        `<tr><td>${d.question_id||'-'}</td><td>${d.agent}</td><td>${d.dataset}</td><td>${(d.accuracy*100).toFixed(0)}%</td><td>${d.weight_used ? '<span style="color:var(--accent)">&#10003;</span>' : '<span style="color:#f43f5e">&#10007;</span>'}</td><td>${d.execution_time?.toFixed(1)}s</td></tr>`
+    ).join('');
+
+    // Heatmap
+    const qs = [...new Set(data.map(d => d.question_id).filter(Boolean))].sort();
+    const hh = document.querySelector('#heat-tbl thead'), hb = document.querySelector('#heat-tbl tbody');
+    hh.innerHTML = '<tr><th>Question</th>' + agents.map(a => `<th>${a}</th>`).join('') + '</tr>';
+    hb.innerHTML = qs.map(q => {
+        const cells = agents.map(a => {
+            const r = data.find(d => d.question_id === q && d.agent === a);
+            const v = r ? r.accuracy : null;
+            const bg = v !== null ? heatColor(v) : 'transparent';
+            return `<td style="background:${bg}; text-align:center; font-weight:600;">${v !== null ? (v*100).toFixed(0)+'%' : '-'}</td>`;
+        });
+        return `<tr><td>${q}</td>${cells.join('')}</tr>`;
+    }).join('');
+}
+
+function heatColor(v) {
+    // Green for high accuracy, red for low
+    if (v >= 0.8) return 'rgba(16,163,127,0.25)';
+    if (v >= 0.5) return 'rgba(245,158,11,0.2)';
+    return 'rgba(244,63,94,0.2)';
+}
+
+function renderExp(data) {
+    const sr = data.filter(d => d.success).length / data.length;
+    const at = data.reduce((s,d) => s + (d.execution_time_seconds||0), 0) / data.length;
+    document.getElementById('top-metrics').innerHTML = `
+        <div class="metric"><div class="num">${data.length}</div><div class="lbl">Questions</div></div>
+        <div class="metric"><div class="num ${sr > 0.8 ? 'green' : ''}">${(sr*100).toFixed(0)}%</div><div class="lbl">Success Rate</div></div>
+        <div class="metric"><div class="num blue">${at.toFixed(1)}s</div><div class="lbl">Avg Time</div></div>
+        <div class="metric"><div class="num">&mdash;</div><div class="lbl">&nbsp;</div></div>
+    `;
+    const dh = document.querySelector('#det-tbl thead'), db = document.querySelector('#det-tbl tbody');
+    dh.innerHTML = '<tr><th>#</th><th>Question</th><th>Status</th><th>Time</th></tr>';
+    db.innerHTML = data.map((d,i) =>
+        `<tr><td>${i+1}</td><td>${d.question?.substring(0,80)}</td><td>${d.success ? '<span style="color:var(--accent)">&#10003;</span>' : '<span style="color:#f43f5e">&#10007;</span>'}</td><td>${d.execution_time_seconds?.toFixed(1)}s</td></tr>`
+    ).join('');
+}
+</script>
+{% endblock %}
