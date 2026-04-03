@@ -28,9 +28,9 @@ from src.evaluation.metrics import (
 )
 
 # Delay between questions to avoid rate limits (seconds)
-# OpenAI free-tier is 30K TPM — each question can use 2-5K tokens,
-# so 15s keeps us safely under the limit.
-INTER_QUESTION_DELAY = 15
+# gpt-4o-mini: 200K TPM, gpt-4o free-tier: 30K TPM.
+# 5s is safe for gpt-4o-mini; increase to 30+ for gpt-4o free-tier.
+INTER_QUESTION_DELAY = 5
 # Max retries on rate-limit (429) errors
 RATE_LIMIT_MAX_RETRIES = 3
 
@@ -83,11 +83,13 @@ def evaluate_answer(
         score.completeness = 1.0 if score.accuracy > 0 else 0.0
 
     elif q_type == "categorical" and gt_value is not None:
-        score.accuracy = categorical_accuracy(result.answer, str(gt_value))
+        aliases = ground_truth.get("aliases")
+        score.accuracy = categorical_accuracy(result.answer, str(gt_value), aliases=aliases)
         score.completeness = 1.0 if score.accuracy > 0 else 0.0
 
     elif q_type == "directional" and gt_value is not None:
-        score.accuracy = directional_accuracy(result.answer, str(gt_value))
+        correlation = ground_truth.get("correlation")
+        score.accuracy = directional_accuracy(result.answer, str(gt_value), correlation=correlation)
         score.completeness = 1.0 if score.accuracy > 0 else 0.0
 
     elif q_type == "descriptive":
@@ -106,6 +108,63 @@ def evaluate_answer(
     return score
 
 
+def _agent_cache_dir() -> Path:
+    """Return the agent results cache directory, creating it if needed."""
+    d = Path("experiments/.cache/agent_results")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _cache_key_for(agent_name: str, model: str, question_id: str) -> str:
+    """Build a safe filename key for the agent result cache."""
+    safe_model = model.replace("/", "_").replace(":", "_")
+    return f"{agent_name}_{safe_model}_{question_id}"
+
+
+def _save_result_cache(agent_name: str, model: str, question_id: str, result: AnalysisResult) -> None:
+    """Persist an AnalysisResult to disk as JSON."""
+    key = _cache_key_for(agent_name, model, question_id)
+    path = _agent_cache_dir() / f"{key}.json"
+    with open(path, "w") as f:
+        json.dump(asdict(result), f, indent=2, default=str)
+
+
+def _load_result_cache(agent_name: str, model: str, question_id: str) -> AnalysisResult | None:
+    """Load a cached AnalysisResult from disk, or return None."""
+    key = _cache_key_for(agent_name, model, question_id)
+    path = _agent_cache_dir() / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        # Backwards compat: fill in any missing fields with defaults
+        defaults = {
+            "question": "",
+            "dataset": "",
+            "answer": "",
+            "code_executed": "",
+            "raw_statistics": {},
+            "execution_time_seconds": 0.0,
+            "errors": [],
+            "retries": 0,
+        }
+        for k, v in defaults.items():
+            data.setdefault(k, v)
+        return AnalysisResult(
+            question=data["question"],
+            dataset=data["dataset"],
+            answer=data["answer"],
+            code_executed=data["code_executed"],
+            raw_statistics=data["raw_statistics"],
+            execution_time_seconds=data["execution_time_seconds"],
+            errors=data["errors"],
+            retries=data["retries"],
+        )
+    except Exception:
+        return None
+
+
 def run_comparison(
     agent_names: list[str] | None = None,
     question_ids: list[str] | None = None,
@@ -114,6 +173,7 @@ def run_comparison(
     provider: str | None = None,
     questions_path: str = "experiments/questions.yaml",
     output_dir: str = "experiments/results",
+    no_cache: bool = False,
 ) -> list[EvalScore]:
     """Run specified agents on specified questions and return scored results.
 
@@ -125,6 +185,7 @@ def run_comparison(
         provider: LLM provider ("openai" or "anthropic"). Auto-detected if omitted.
         questions_path: Path to the questions YAML.
         output_dir: Directory to save results.
+        no_cache: If True, bypass the disk cache and re-run all agents.
 
     Returns:
         List of EvalScore objects.
@@ -149,7 +210,7 @@ def run_comparison(
         print(f"Agent: {agent_name}")
         print(f"{'='*60}")
 
-        agent = AGENT_CLASSES[agent_name](model=model, provider=provider)
+        agent = None  # lazy init only if needed
 
         for qi, q in enumerate(questions):
             print(f"\n  [{q['id']}] {q['question'][:80]}...")
@@ -157,26 +218,37 @@ def run_comparison(
             # Compute ground truth
             gt = compute_ground_truth(q["ground_truth_key"])
 
-            # Run agent with retry on rate-limit errors
+            # Check disk cache
             result = None
-            for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
-                try:
-                    result = agent.analyze(q["question"], q["dataset"])
-                    break
-                except Exception as e:
-                    err_str = str(e)
-                    if ("429" in err_str or "RateLimit" in err_str or "rate_limit" in err_str) and attempt < RATE_LIMIT_MAX_RETRIES:
-                        wait = 30 * (2 ** attempt)  # 30s, 60s, 120s
-                        print(f"    ⏳ Rate limited (attempt {attempt + 1}/{RATE_LIMIT_MAX_RETRIES + 1}), waiting {wait}s...")
-                        time.sleep(wait)
-                        continue
-                    result = AnalysisResult(
-                        question=q["question"],
-                        dataset=q["dataset"],
-                        answer="",
-                        errors=[f"{type(e).__name__}: {e}\n{traceback.format_exc()}"],
-                    )
-                    break
+            if not no_cache:
+                result = _load_result_cache(agent_name, model, q["id"])
+                if result is not None:
+                    print(f"  [cached] loaded from disk cache")
+
+            # Run agent if no cached result
+            if result is None:
+                if agent is None:
+                    agent = AGENT_CLASSES[agent_name](model=model, provider=provider)
+                for attempt in range(RATE_LIMIT_MAX_RETRIES + 1):
+                    try:
+                        result = agent.analyze(q["question"], q["dataset"])
+                        break
+                    except Exception as e:
+                        err_str = str(e)
+                        if ("429" in err_str or "RateLimit" in err_str or "rate_limit" in err_str) and attempt < RATE_LIMIT_MAX_RETRIES:
+                            wait = 30 * (2 ** attempt)  # 30s, 60s, 120s
+                            print(f"    ⏳ Rate limited (attempt {attempt + 1}/{RATE_LIMIT_MAX_RETRIES + 1}), waiting {wait}s...")
+                            time.sleep(wait)
+                            continue
+                        result = AnalysisResult(
+                            question=q["question"],
+                            dataset=q["dataset"],
+                            answer="",
+                            errors=[f"{type(e).__name__}: {e}\n{traceback.format_exc()}"],
+                        )
+                        break
+                # Save to cache
+                _save_result_cache(agent_name, model, q["id"], result)
 
             # Evaluate
             score = evaluate_answer(result, q, gt, agent_name)

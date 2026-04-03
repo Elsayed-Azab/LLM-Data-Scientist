@@ -39,7 +39,9 @@ def numeric_accuracy(
     Returns 1.0 if within tolerance, partial credit scaled linearly,
     0.0 if no number found or way off.
     """
-    numbers = re.findall(r"[-+]?\d*\.?\d+", answer_text)
+    # Strip commas from numbers like "15,627" before extracting
+    cleaned = re.sub(r"(\d),(\d)", r"\1\2", answer_text)
+    numbers = re.findall(r"[-+]?\d*\.?\d+", cleaned)
     if not numbers:
         return 0.0
 
@@ -70,25 +72,43 @@ def numeric_accuracy(
 # Categorical accuracy
 # ---------------------------------------------------------------------------
 
-def categorical_accuracy(answer_text: str, expected: str) -> float:
+def categorical_accuracy(answer_text: str, expected: str, aliases: list[str] | None = None) -> float:
     """Check if the expected category appears in the answer (case-insensitive).
+
+    Args:
+        answer_text: The agent's answer text.
+        expected: The expected category value (code or label).
+        aliases: Optional list of alternative acceptable values (e.g. label
+                 alternatives for a numeric code).
 
     Returns 1.0 if found, 0.0 otherwise.
     """
-    return 1.0 if expected.lower() in answer_text.lower() else 0.0
+    text = answer_text.lower()
+    candidates = [expected]
+    if aliases:
+        candidates.extend(aliases)
+    return 1.0 if any(c.lower() in text for c in candidates) else 0.0
 
 
 # ---------------------------------------------------------------------------
 # Directional accuracy
 # ---------------------------------------------------------------------------
 
-def directional_accuracy(answer_text: str, expected_direction: str) -> float:
+def directional_accuracy(
+    answer_text: str,
+    expected_direction: str,
+    correlation: float | None = None,
+) -> float:
     """Check if the answer identifies the correct relationship direction.
 
     Args:
         expected_direction: One of 'positive', 'negative', 'none'.
+        correlation: Optional actual correlation value. When the true
+                     correlation is near zero (|r| < 0.1), reporting
+                     either "weak positive/negative" or "none" is
+                     considered acceptable (partial credit 0.5).
 
-    Returns 1.0 if direction matches, 0.0 otherwise.
+    Returns 1.0 if direction matches, 0.5 for borderline cases, 0.0 otherwise.
     """
     text = answer_text.lower()
 
@@ -97,14 +117,34 @@ def directional_accuracy(answer_text: str, expected_direction: str) -> float:
     negative_signals = ["negative", "decreases", "lower", "less likely", "associated with lower",
                         "negatively correlated", "negative correlation", "inverse"]
     none_signals = ["no significant", "no relationship", "no association", "not significant",
-                    "no correlation", "no clear"]
+                    "no correlation", "no clear", "negligible", "very weak", "weak"]
+
+    detected_positive = any(s in text for s in positive_signals)
+    detected_negative = any(s in text for s in negative_signals)
+    detected_none = any(s in text for s in none_signals)
+
+    # Borderline: if |correlation| < 0.1, both the expected direction and
+    # a "weak/none" answer are defensible.
+    is_borderline = correlation is not None and abs(correlation) < 0.1
 
     if expected_direction == "positive":
-        return 1.0 if any(s in text for s in positive_signals) else 0.0
+        if detected_positive:
+            return 1.0
+        if is_borderline and (detected_none or detected_negative):
+            return 0.5
+        return 0.0
     elif expected_direction == "negative":
-        return 1.0 if any(s in text for s in negative_signals) else 0.0
+        if detected_negative:
+            return 1.0
+        if is_borderline and (detected_none or detected_positive):
+            return 0.5
+        return 0.0
     elif expected_direction == "none":
-        return 1.0 if any(s in text for s in none_signals) else 0.0
+        if detected_none:
+            return 1.0
+        if is_borderline and (detected_positive or detected_negative):
+            return 0.5
+        return 0.0
     return 0.0
 
 

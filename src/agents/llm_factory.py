@@ -55,6 +55,7 @@ def create_llm(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            max_retries=5,
             **kwargs,
         )
     elif resolved_provider == "anthropic":
@@ -63,6 +64,7 @@ def create_llm(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            max_retries=5,
             **kwargs,
         )
     else:

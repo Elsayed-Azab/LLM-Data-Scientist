@@ -1,9 +1,11 @@
 """Flask backend for the LLM Data Scientist dashboard."""
 
+import hashlib
 import json
 import sys
 import time
 import queue
+from dataclasses import asdict
 from pathlib import Path
 from threading import Thread
 
@@ -23,6 +25,46 @@ from src.data.registry import list_datasets, get_dataset_info
 from src.evaluation.metrics import check_weight_usage
 from src.evaluation.comparator import load_questions, evaluate_answer
 from src.evaluation.ground_truth import compute_ground_truth
+
+
+# ── Web result cache ────────────────────────────────────────────────
+
+_WEB_CACHE_DIR = Path("experiments/.cache/web_results")
+
+
+def _web_cache_key(agent_type: str, model: str, dataset: str, question: str) -> str:
+    """Build a deterministic cache key from the request parameters."""
+    q_hash = hashlib.md5(question.encode()).hexdigest()[:12]
+    safe_model = model.replace("/", "_").replace(":", "_")
+    return f"{agent_type}_{safe_model}_{dataset}_{q_hash}"
+
+
+def _save_web_cache(key: str, result: AnalysisResult) -> None:
+    _WEB_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _WEB_CACHE_DIR / f"{key}.json"
+    with open(path, "w") as f:
+        json.dump(asdict(result), f, indent=2, default=str)
+
+
+def _load_web_cache(key: str) -> AnalysisResult | None:
+    path = _WEB_CACHE_DIR / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return AnalysisResult(
+            question=data.get("question", ""),
+            dataset=data.get("dataset", ""),
+            answer=data.get("answer", ""),
+            code_executed=data.get("code_executed", ""),
+            raw_statistics=data.get("raw_statistics", {}),
+            execution_time_seconds=data.get("execution_time_seconds", 0.0),
+            errors=data.get("errors", []),
+            retries=data.get("retries", 0),
+        )
+    except Exception:
+        return None
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "llm-data-scientist"
@@ -115,6 +157,24 @@ def api_analyze():
     if agent_type not in AGENT_CLASSES:
         return jsonify({"error": f"Unknown agent type: {agent_type}. Choose single, multi, or rag."}), 400
 
+    # Check cache
+    cache_key = _web_cache_key(agent_type, model, dataset, question)
+    cached = _load_web_cache(cache_key)
+    if cached is not None:
+        ds_info = get_dataset_info(dataset)
+        weight_used = check_weight_usage(cached.code_executed, ds_info.weight_column)
+        return jsonify({
+            "answer": cached.answer,
+            "time": cached.execution_time_seconds,
+            "retries": cached.retries,
+            "weights_used": weight_used,
+            "errors": cached.errors,
+            "success": cached.success,
+            "code_executed": cached.code_executed,
+            "raw_statistics": cached.raw_statistics,
+            "cached": True,
+        })
+
     try:
         agent = AGENT_CLASSES[agent_type](model=model, provider=provider, temperature=temperature)
         result = agent.analyze(question, dataset)
@@ -128,6 +188,9 @@ def api_analyze():
             err = f"Request timed out. The {model} model took too long to respond."
         return jsonify({"error": err}), 500
 
+    # Save to cache
+    _save_web_cache(cache_key, result)
+
     ds_info = get_dataset_info(dataset)
     weight_used = check_weight_usage(result.code_executed, ds_info.weight_column)
 
@@ -140,6 +203,7 @@ def api_analyze():
         "success": result.success,
         "code_executed": result.code_executed,
         "raw_statistics": result.raw_statistics,
+        "cached": False,
     })
 
 @app.route("/api/analyze/stream", methods=["POST"])
@@ -156,6 +220,19 @@ def api_analyze_stream():
     if not question or not dataset:
         return jsonify({"error": "question and dataset required"}), 400
 
+    # Check cache first
+    cache_key = _web_cache_key(agent_type, model, dataset, question)
+    cached = _load_web_cache(cache_key)
+    if cached is not None:
+        ds_info = get_dataset_info(dataset)
+        weight_used = check_weight_usage(cached.code_executed, ds_info.weight_column)
+
+        def generate_cached():
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Loading from cache...'})}\n\n"
+            yield f"data: {json.dumps({'type': 'result', 'data': {'answer': cached.answer, 'time': cached.execution_time_seconds, 'retries': cached.retries, 'weights_used': weight_used, 'errors': cached.errors, 'success': cached.success, 'raw_statistics': cached.raw_statistics, 'cached': True}})}\n\n"
+
+        return Response(generate_cached(), mimetype="text/event-stream")
+
     q = queue.Queue()
 
     def run_agent():
@@ -166,6 +243,9 @@ def api_analyze_stream():
 
             q.put({"type": "status", "message": f"Analyzing with {model}..."})
             result = agent.analyze(question, dataset)
+
+            # Save to cache
+            _save_web_cache(cache_key, result)
 
             ds_info = get_dataset_info(dataset)
             weight_used = check_weight_usage(result.code_executed, ds_info.weight_column)
@@ -178,6 +258,7 @@ def api_analyze_stream():
                 "errors": result.errors,
                 "success": result.success,
                 "raw_statistics": result.raw_statistics,
+                "cached": False,
             }})
         except Exception as e:
             q.put({"type": "error", "message": str(e)})
@@ -219,8 +300,16 @@ def api_compare():
         if agent_type not in AGENT_CLASSES:
             continue
         try:
-            agent = AGENT_CLASSES[agent_type](model=model, provider=provider, temperature=temperature)
-            result = agent.analyze(question, dataset)
+            # Check cache
+            cache_key = _web_cache_key(agent_type, model, dataset, question)
+            cached = _load_web_cache(cache_key)
+            if cached is not None:
+                result = cached
+            else:
+                agent = AGENT_CLASSES[agent_type](model=model, provider=provider, temperature=temperature)
+                result = agent.analyze(question, dataset)
+                _save_web_cache(cache_key, result)
+
             weight_used = check_weight_usage(result.code_executed, ds_info.weight_column)
 
             entry = {
@@ -231,6 +320,7 @@ def api_compare():
                 "weights_used": weight_used,
                 "errors": result.errors,
                 "success": result.success,
+                "cached": cached is not None,
             }
 
             # Score against ground truth if question_id provided
@@ -279,6 +369,141 @@ def api_preset_questions(dataset):
     all_questions = load_questions()
     dataset_questions = [q for q in all_questions if q["dataset"] == dataset]
     return jsonify(dataset_questions)
+
+
+@app.route("/api/score", methods=["POST"])
+def api_score():
+    """Score a single answer against ground truth."""
+    data = request.json
+    question_id = data.get("question_id")
+    answer_text = data.get("answer", "")
+    agent_type = data.get("agent", "single")
+
+    if not question_id:
+        return jsonify({"error": "question_id required"}), 400
+
+    all_questions = load_questions()
+    q_def = next((q for q in all_questions if q["id"] == question_id), None)
+    if not q_def:
+        return jsonify({"error": f"Unknown question_id: {question_id}"}), 404
+
+    gt_key = q_def.get("ground_truth_key")
+    if not gt_key:
+        return jsonify({"error": "No ground truth available for this question"}), 400
+
+    try:
+        gt = compute_ground_truth(gt_key)
+        # Build a minimal AnalysisResult for scoring
+        result = AnalysisResult(
+            question=q_def["question"],
+            dataset=q_def["dataset"],
+            answer=answer_text,
+        )
+        score = evaluate_answer(result, q_def, gt, agent_type)
+        return jsonify({
+            "accuracy": round(score.accuracy, 3),
+            "completeness": round(score.completeness, 3),
+            "ground_truth": gt,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/error-analysis")
+def api_error_analysis():
+    """Aggregate error analysis from cached experiment results."""
+    results_dir = Path("experiments/results")
+    if not results_dir.exists():
+        return jsonify({"error": "No experiment results found"}), 404
+
+    files = sorted(results_dir.glob("*.json"), reverse=True)
+    if not files:
+        return jsonify({"error": "No result files found"}), 404
+
+    # Use the most recent result file, or a specific one if requested
+    filename = request.args.get("file")
+    if filename:
+        path = results_dir / filename
+        if not path.exists():
+            return jsonify({"error": "File not found"}), 404
+    else:
+        path = files[0]
+
+    with open(path) as f:
+        data = json.load(f)
+
+    # Result files may be a list of scores directly or {"scores": [...]}
+    if isinstance(data, list):
+        scores = data
+    else:
+        scores = data.get("scores", [])
+    errors_by_agent = {}
+    errors_by_question_type = {}
+    errors_by_dataset = {}
+    weight_failures = []
+    low_accuracy = []
+
+    for s in scores:
+        agent = s.get("agent", "unknown")
+        qid = s.get("question_id", "")
+        dataset = s.get("dataset", "")
+        accuracy = s.get("accuracy", 0)
+        had_error = s.get("had_error", False)
+        weight_used = s.get("weight_used", False)
+        details = s.get("details", {})
+        q_type = details.get("ground_truth", {}).get("type", details.get("type", "unknown"))
+
+        # Count errors by agent
+        if agent not in errors_by_agent:
+            errors_by_agent[agent] = {"total": 0, "errors": 0, "low_accuracy": 0, "weight_failures": 0}
+        errors_by_agent[agent]["total"] += 1
+        if had_error:
+            errors_by_agent[agent]["errors"] += 1
+        if accuracy < 0.5:
+            errors_by_agent[agent]["low_accuracy"] += 1
+        if not weight_used:
+            errors_by_agent[agent]["weight_failures"] += 1
+
+        # Count by question type
+        if q_type not in errors_by_question_type:
+            errors_by_question_type[q_type] = {"total": 0, "errors": 0, "avg_accuracy": []}
+        errors_by_question_type[q_type]["total"] += 1
+        if had_error or accuracy < 0.5:
+            errors_by_question_type[q_type]["errors"] += 1
+        errors_by_question_type[q_type]["avg_accuracy"].append(accuracy)
+
+        # Count by dataset
+        if dataset not in errors_by_dataset:
+            errors_by_dataset[dataset] = {"total": 0, "errors": 0, "avg_accuracy": []}
+        errors_by_dataset[dataset]["total"] += 1
+        if had_error or accuracy < 0.5:
+            errors_by_dataset[dataset]["errors"] += 1
+        errors_by_dataset[dataset]["avg_accuracy"].append(accuracy)
+
+        # Track specific failures
+        if not weight_used:
+            weight_failures.append({"agent": agent, "question_id": qid, "dataset": dataset})
+        if accuracy < 0.5:
+            low_accuracy.append({"agent": agent, "question_id": qid, "dataset": dataset, "accuracy": accuracy, "type": q_type})
+
+    # Compute averages
+    for v in errors_by_question_type.values():
+        accs = v.pop("avg_accuracy")
+        v["avg_accuracy"] = round(sum(accs) / len(accs), 3) if accs else 0
+    for v in errors_by_dataset.values():
+        accs = v.pop("avg_accuracy")
+        v["avg_accuracy"] = round(sum(accs) / len(accs), 3) if accs else 0
+
+    return jsonify({
+        "file": path.name,
+        "total_scores": len(scores),
+        "errors_by_agent": errors_by_agent,
+        "errors_by_question_type": errors_by_question_type,
+        "errors_by_dataset": errors_by_dataset,
+        "weight_failures": weight_failures,
+        "low_accuracy_questions": sorted(low_accuracy, key=lambda x: x["accuracy"]),
+        "all_scores": scores,
+    })
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ from src.agents.llm_factory import create_llm
 
 from src.agents.base import AnalysisResult, BaseAgent
 from src.agents.tools import get_all_tools, run_analysis_code, get_dataset_schema, load_dataset, get_variable_info
+from src.data.metadata import get_variable_labels
 from src.data.registry import get_dataset_info
 
 MAX_RETRIES = 2
@@ -157,12 +158,13 @@ def _build_analyst(model: str, temperature: float, provider: str | None = None):
             )
         human_content = "\n".join(human_parts)
 
-        response = react_agent.invoke({
-            "messages": [
+        response = react_agent.invoke(
+            {"messages": [
                 SystemMessage(content=system),
                 HumanMessage(content=human_content),
-            ]
-        })
+            ]},
+            {"recursion_limit": 30},
+        )
 
         messages = response["messages"]
 
@@ -276,15 +278,18 @@ class MultiAgent(BaseAgent):
         loader = DatasetLoader()
         schema = loader.get_schema(dataset_name, sample_rows=3)
         all_cols = schema["columns"]
-        if len(all_cols) > 100:
-            schema_str = "\n".join(
-                f"  {c}: {schema['dtypes'][c]}" for c in all_cols[:100]
-            )
-            schema_str += f"\n  ... and {len(all_cols) - 100} more columns. Use get_variable_info tool to inspect specific ones."
-        else:
-            schema_str = "\n".join(
-                f"  {c}: {schema['dtypes'][c]}" for c in all_cols
-            )
+        var_labels = get_variable_labels(dataset_name)
+
+        limit = 100
+        shown_cols = all_cols[:limit]
+        lines = []
+        for c in shown_cols:
+            label = var_labels.get(c) or ""
+            label_str = f" — {label}" if label else ""
+            lines.append(f"  {c} ({schema['dtypes'][c]}){label_str}")
+        schema_str = "\n".join(lines)
+        if len(all_cols) > limit:
+            schema_str += f"\n  ... and {len(all_cols) - limit} more columns. Use search_columns or get_variable_info tools to find and inspect specific ones."
 
         initial_state: MultiAgentState = {
             "question": question,
@@ -303,7 +308,7 @@ class MultiAgent(BaseAgent):
 
         t0 = time.time()
         try:
-            result_state = self._graph.invoke(initial_state)
+            result_state = self._graph.invoke(initial_state, {"recursion_limit": 60})
             elapsed = time.time() - t0
 
             return AnalysisResult(

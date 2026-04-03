@@ -24,6 +24,9 @@ chroma_db/
 # Experiment results (optional: remove this line to track results)
 experiments/results/
 
+# Disk caches
+experiments/.cache/
+
 # OS
 *.swp
 *.swo

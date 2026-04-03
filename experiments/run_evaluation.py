@@ -40,6 +40,7 @@ def main():
     parser.add_argument("--questions-file", default="experiments/questions.yaml")
     parser.add_argument("--output-dir", default="experiments/results")
     parser.add_argument("--report", default="experiments/results/report.md", help="Report output path")
+    parser.add_argument("--no-cache", action="store_true", help="Bypass disk cache and re-run all agents")
     args = parser.parse_args()
 
     print(f"Starting evaluation with model={args.model}...\n")
@@ -52,6 +53,7 @@ def main():
         provider=args.provider,
         questions_path=args.questions_file,
         output_dir=args.output_dir,
+        no_cache=args.no_cache,
     )
 
     if not scores:

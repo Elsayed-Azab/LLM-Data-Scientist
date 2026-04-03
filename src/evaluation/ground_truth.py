@@ -2,12 +2,15 @@
 
 Each function computes the reference answer for a specific question using
 the statistics module directly (no LLM involved). Results are cached so
-they only need to be computed once per session.
+they only need to be computed once per session, and persisted to disk for
+subsequent runs.
 """
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -39,14 +42,41 @@ def _load_columns(dataset_name: str, columns_tuple: tuple[str, ...]):
 # Ground truth functions — keyed by ground_truth_key in questions.yaml
 # ---------------------------------------------------------------------------
 
-def compute_ground_truth(key: str) -> dict[str, Any]:
+def _gt_cache_dir() -> Path:
+    """Return the ground truth cache directory, creating it if needed."""
+    d = Path("experiments/.cache/ground_truth")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def compute_ground_truth(key: str, no_cache: bool = False) -> dict[str, Any]:
     """Dispatch to the correct ground-truth function by key.
 
     Returns a dict with at least 'value' and 'type' keys.
+    Results are cached to disk for subsequent runs.
     """
     if key not in _GROUND_TRUTH_REGISTRY:
         return {"value": None, "type": "unknown", "error": f"No ground truth for key: {key}"}
-    return _GROUND_TRUTH_REGISTRY[key]()
+
+    # Check disk cache
+    cache_path = _gt_cache_dir() / f"{key}.json"
+    if not no_cache and cache_path.exists():
+        try:
+            with open(cache_path) as f:
+                return json.load(f)
+        except Exception:
+            pass  # recompute on any read error
+
+    result = _GROUND_TRUTH_REGISTRY[key]()
+
+    # Save to disk cache
+    try:
+        with open(cache_path, "w") as f:
+            json.dump(result, f, indent=2, default=str)
+    except Exception:
+        pass  # non-fatal if cache write fails
+
+    return result
 
 
 # ── Arab Barometer ────────────────────────────────────────────────────
@@ -62,8 +92,12 @@ def _ab_weighted_mean_age() -> dict:
 def _ab_top_country() -> dict:
     df, meta = _load_columns("arab_barometer", ("COUNTRY", "WT"))
     freq = df["COUNTRY"].value_counts()
-    top = str(int(freq.index[0]))
-    return {"value": top, "type": "categorical"}
+    top_code = int(freq.index[0])
+    # Arab Barometer VIII country codes from DTA value labels
+    country_labels = {7: "Iraq", 8: "Jordan", 9: "Kuwait", 10: "Lebanon",
+                      12: "Mauritania", 13: "Morocco", 15: "Palestine", 21: "Tunisia"}
+    label = country_labels.get(top_code, str(top_code))
+    return {"value": label, "type": "categorical", "aliases": [str(top_code)]}
 
 
 def _ab_education_trust_direction() -> dict:
@@ -101,7 +135,7 @@ def _wvs_top_country() -> dict:
     df, _ = _load_columns("wvs", ("B_COUNTRY_ALPHA",))
     freq = df["B_COUNTRY_ALPHA"].value_counts()
     top = str(freq.index[0])
-    return {"value": top, "type": "categorical"}
+    return {"value": top, "type": "categorical", "aliases": ["Canada"]}
 
 
 def _wvs_income_happiness_direction() -> dict:
@@ -139,8 +173,11 @@ def _gss_weighted_mean_educ() -> dict:
 def _gss_top_marital_status() -> dict:
     df, _ = _load_columns("gss", ("marital",))
     freq = df["marital"].value_counts()
-    top = str(freq.index[0])
-    return {"value": top, "type": "categorical"}
+    top_code = freq.index[0]
+    # GSS marital: 1=married, 2=widowed, 3=divorced, 4=separated, 5=never married
+    marital_labels = {1: "married", 2: "widowed", 3: "divorced", 4: "separated", 5: "never married"}
+    label = marital_labels.get(int(top_code), str(top_code))
+    return {"value": label, "type": "categorical", "aliases": [str(int(top_code))]}
 
 
 def _gss_educ_income_direction() -> dict:

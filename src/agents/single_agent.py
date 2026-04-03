@@ -51,12 +51,22 @@ class SingleAgent(BaseAgent):
         )
 
         t0 = time.time()
-        response = self.agent.invoke({
-            "messages": [
-                SystemMessage(content=system),
-                HumanMessage(content=question),
-            ]
-        })
+        try:
+            response = self.agent.invoke(
+                {"messages": [
+                    SystemMessage(content=system),
+                    HumanMessage(content=question),
+                ]},
+                {"recursion_limit": 30},
+            )
+        except Exception as e:
+            return AnalysisResult(
+                question=question,
+                dataset=dataset_name,
+                answer="",
+                execution_time_seconds=round(time.time() - t0, 2),
+                errors=[str(e)],
+            )
         elapsed = time.time() - t0
 
         # Extract the final AI message

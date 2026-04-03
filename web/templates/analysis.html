@@ -37,7 +37,16 @@
         <p class="sub">Ask questions about survey data</p>
     </div>
 
-    <div id="pills" class="pills" style="flex-shrink:0;"></div>
+    <!-- Welcome state with suggestion cards -->
+    <div id="suggestions" class="suggestions-area">
+        <div class="suggestions-header">
+            <span class="suggestions-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </span>
+            <span>Try a question</span>
+        </div>
+        <div id="suggestion-cards" class="suggestion-grid"></div>
+    </div>
 
     <div class="chat-wrap" id="chat"></div>
 
@@ -70,23 +79,59 @@ fetch('/api/datasets').then(r=>r.json()).then(ds => {
     loadSuggestions();
 });
 
+let presetQuestions = [];
+
+const TYPE_META = {
+    numeric:      { icon: '#', color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
+    categorical:  { icon: '\u2630', color: '#ab68ff', bg: 'rgba(171,104,255,0.1)' },
+    directional:  { icon: '\u2197', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+    descriptive:  { icon: '\u00b6', color: '#10a37f', bg: 'rgba(16,163,127,0.1)' },
+};
+const DIFF_META = {
+    easy:   { label: 'Easy',   color: '#10a37f' },
+    medium: { label: 'Medium', color: '#f59e0b' },
+    hard:   { label: 'Hard',   color: '#f43f5e' },
+};
+
 function loadSuggestions() {
-    fetch(`/api/questions/${document.getElementById('dataset').value}`).then(r=>r.json()).then(qs => {
-        const c = document.getElementById('pills');
+    const ds = document.getElementById('dataset').value;
+    fetch(`/api/preset-questions/${ds}`).then(r=>r.json()).then(qs => {
+        presetQuestions = qs;
+        const c = document.getElementById('suggestion-cards');
         c.innerHTML = '';
-        qs.forEach(q => {
-            const b = document.createElement('button');
-            b.className = 'pill';
-            b.textContent = q;
-            b.onclick = () => { qInput.value = q; qInput.focus(); };
-            c.appendChild(b);
+        const shown = qs;
+        shown.forEach((q, i) => {
+            const tm = TYPE_META[q.type] || TYPE_META.descriptive;
+            const dm = DIFF_META[q.difficulty] || DIFF_META.easy;
+            const card = document.createElement('button');
+            card.className = 'suggestion-card';
+            card.style.animationDelay = (i * 0.06) + 's';
+            card.onclick = () => {
+                qInput.value = q.question;
+                qInput.focus();
+                qInput.style.height = '24px';
+                qInput.style.height = qInput.scrollHeight + 'px';
+            };
+            card.innerHTML = `
+                <span class="sg-type-icon" style="background:${tm.bg}; color:${tm.color}">${tm.icon}</span>
+                <span class="sg-card-text">${q.question}</span>
+                <span class="sg-diff" style="color:${dm.color}">${dm.label}</span>`;
+            c.appendChild(card);
         });
+        document.getElementById('suggestions').style.display = '';
     });
 }
+
+function findPresetQuestion(questionText) {
+    return presetQuestions.find(q => q.question.trim() === questionText.trim());
+}
+
+let msgCounter = 0;
 
 function addMsg(role, html, meta) {
     const d = document.createElement('div');
     d.className = `msg ${role}`;
+    const msgId = msgCounter++;
 
     const avatar = role === 'user' ? '&#128100;' : '&#10024;';
     const name = role === 'user' ? 'You' : 'LLM Analyst';
@@ -101,7 +146,13 @@ function addMsg(role, html, meta) {
                 ? '<span class="badge badge-green">Weights applied</span>'
                 : '<span class="badge badge-red">Weights missing</span>';
         if (meta.retries > 0) metaHtml += `<span class="badge badge-gray">${meta.retries} retries</span>`;
+        if (meta.question_id)
+            metaHtml += `<button class="score-trigger" onclick="scoreAnswer('${meta.question_id}', ${msgId})">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                Score vs Ground Truth
+            </button>`;
         metaHtml += '</div>';
+        metaHtml += `<div id="score-${msgId}"></div>`;
     }
 
     d.innerHTML = `
@@ -113,8 +164,136 @@ function addMsg(role, html, meta) {
                 ${metaHtml}
             </div>
         </div>`;
+    d.dataset.answer = html || '';
+    d.id = `msg-${msgId}`;
     chat.appendChild(d);
     chat.scrollTop = chat.scrollHeight;
+}
+
+function scoreColor(val) {
+    if (val >= 0.7) return '#10a37f';
+    if (val >= 0.4) return '#f59e0b';
+    return '#f43f5e';
+}
+
+function scoreLabel(val) {
+    if (val >= 0.9) return 'Excellent';
+    if (val >= 0.7) return 'Good';
+    if (val >= 0.4) return 'Fair';
+    return 'Poor';
+}
+
+function buildGauge(id, value, label) {
+    const pct = Math.round(value * 100);
+    const color = scoreColor(value);
+    const r = 36, c = 2 * Math.PI * r;
+    const offset = c - (value * c);
+    return `
+    <div class="score-gauge">
+        <svg width="88" height="88" viewBox="0 0 88 88">
+            <circle cx="44" cy="44" r="${r}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="7"/>
+            <circle id="${id}" cx="44" cy="44" r="${r}" fill="none" stroke="${color}" stroke-width="7"
+                stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c}"
+                transform="rotate(-90 44 44)" style="transition: stroke-dashoffset 1s cubic-bezier(0.4,0,0.2,1);"/>
+        </svg>
+        <div class="score-gauge-value" style="color:${color}">${pct}%</div>
+        <div class="score-gauge-label">${label}</div>
+    </div>`;
+}
+
+function animateGauge(id, value) {
+    const r = 36, c = 2 * Math.PI * r;
+    const offset = c - (value * c);
+    requestAnimationFrame(() => {
+        const el = document.getElementById(id);
+        if (el) el.style.strokeDashoffset = offset;
+    });
+}
+
+function formatGroundTruth(gt) {
+    if (!gt) return '';
+    const val = gt.value;
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'number') return String(Math.round(val * 1000) / 1000);
+    if (typeof val === 'string') return val;
+    if (typeof val === 'object') {
+        try { return JSON.stringify(val, null, 0).slice(0, 200); }
+        catch { return String(val); }
+    }
+    return String(val);
+}
+
+async function scoreAnswer(questionId, msgId) {
+    const msgEl = document.getElementById(`msg-${msgId}`);
+    const answer = msgEl?.dataset.answer || '';
+    const scoreEl = document.getElementById(`score-${msgId}`);
+    if (!scoreEl) return;
+
+    // Replace the trigger button with a loading state
+    const trigger = msgEl.querySelector('.score-trigger');
+    if (trigger) {
+        trigger.disabled = true;
+        trigger.innerHTML = `<svg class="score-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4m-7.07-15.07l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg> Evaluating...`;
+    }
+
+    try {
+        const res = await fetch('/api/score', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                question_id: questionId,
+                answer: answer,
+                agent: document.getElementById('agent').value,
+            })
+        });
+        const data = await res.json();
+
+        if (trigger) trigger.remove();
+
+        if (data.error) {
+            scoreEl.innerHTML = `<div class="score-card score-card-error"><div class="score-card-header"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>${data.error}</span></div></div>`;
+        } else {
+            const acc = data.accuracy;
+            const comp = data.completeness;
+            const overall = (acc * 0.7 + comp * 0.3);
+            const gtText = formatGroundTruth(data.ground_truth);
+            const gtType = data.ground_truth?.type || '';
+
+            scoreEl.innerHTML = `
+            <div class="score-card">
+                <div class="score-card-header">
+                    <div class="score-card-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${scoreColor(overall)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <span style="font-weight:600; color:var(--text);">Evaluation</span>
+                        <span class="score-verdict" style="color:${scoreColor(overall)}">${scoreLabel(overall)}</span>
+                    </div>
+                    ${gtType ? `<span class="score-type-tag">${gtType}</span>` : ''}
+                </div>
+                <div class="score-gauges">
+                    ${buildGauge('gauge-acc-'+msgId, acc, 'Accuracy')}
+                    ${buildGauge('gauge-comp-'+msgId, comp, 'Completeness')}
+                </div>
+                ${gtText ? `
+                <div class="score-gt">
+                    <button class="score-gt-toggle" onclick="this.parentElement.classList.toggle('open')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        Ground Truth Reference
+                    </button>
+                    <div class="score-gt-content"><code>${gtText}</code></div>
+                </div>` : ''}
+            </div>`;
+
+            // Trigger gauge animations after DOM insert
+            setTimeout(() => {
+                animateGauge('gauge-acc-'+msgId, acc);
+                animateGauge('gauge-comp-'+msgId, comp);
+            }, 50);
+        }
+        chat.scrollTop = chat.scrollHeight;
+    } catch (e) {
+        if (trigger) trigger.remove();
+        scoreEl.innerHTML = `<div class="score-card score-card-error"><div class="score-card-header"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>Scoring failed</span></div></div>`;
+    }
 }
 
 function addLoading(statusText) {
@@ -151,6 +330,7 @@ async function send() {
     const q = qInput.value.trim();
     if (!q) return;
     const llm = getLLM();
+    const preset = findPresetQuestion(q);
     addMsg('user', q);
     qInput.value = '';
     qInput.style.height = '24px';
@@ -193,7 +373,8 @@ async function send() {
                     addMsg('agent', msg.data.answer, {
                         time: msg.data.time,
                         weights_used: msg.data.weights_used,
-                        retries: msg.data.retries
+                        retries: msg.data.retries,
+                        question_id: preset ? preset.id : null,
                     });
                 } else if (msg.type === 'error') {
                     const el = document.getElementById('loading'); if (el) el.remove();

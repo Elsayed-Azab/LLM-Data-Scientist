@@ -19,6 +19,7 @@ from src.agents.base import AnalysisResult, BaseAgent
 from src.agents.llm_factory import create_llm
 from src.agents.tools import get_all_tools
 from src.data.loader import DatasetLoader
+from src.data.metadata import get_variable_labels, get_value_labels
 from src.data.registry import get_dataset_info
 from src.rag.indexer import CodebookIndexer
 from src.rag.retriever import CodebookRetriever
@@ -88,29 +89,38 @@ class RAGAgent(BaseAgent):
             print(f"RAGAgent: Indexed {total} chunks across {len(results)} codebook(s).")
 
     def _get_schema_context(self, dataset_name: str) -> str:
-        """Generate context from dataset schema when no codebook is available."""
+        """Generate context from dataset schema and .dta variable labels."""
         try:
             schema = self._loader.get_schema(dataset_name, sample_rows=3)
             all_cols = schema["columns"]
+            var_labels = get_variable_labels(dataset_name)
+            val_labels = get_value_labels(dataset_name)
 
             lines = [f"DATASET SCHEMA ({len(all_cols)} columns):"]
 
-            # Show first 100 columns with dtypes
+            # Show first 100 columns with dtypes and labels
             show = all_cols[:100]
             for col in show:
                 dtype = schema["dtypes"].get(col, "?")
-                # Show sample values for each column
-                sample_vals = []
-                for row in schema.get("sample", []):
-                    v = row.get(col)
-                    if v is not None:
-                        sample_vals.append(str(v))
-                sample_str = f"  (e.g. {', '.join(sample_vals[:3])})" if sample_vals else ""
-                lines.append(f"  {col}: {dtype}{sample_str}")
+                label = var_labels.get(col) or ""
+                label_str = f" — {label}" if label else ""
+                lines.append(f"  {col} ({dtype}){label_str}")
 
             if len(all_cols) > 100:
                 lines.append(f"  ... and {len(all_cols) - 100} more columns")
-                lines.append("  Use get_variable_info tool to inspect specific columns.")
+                lines.append("  Use search_columns or get_variable_info tools to find and inspect specific columns.")
+
+            # Add value labels for commonly used variables (first 20 that have them)
+            vars_with_values = [(c, vl) for c in show
+                                if (vl := val_labels.get(c))
+                                and any(isinstance(k, (int, float)) for k in vl)]
+            if vars_with_values:
+                lines.append("\nVALUE LABELS (what numeric codes mean):")
+                for col, vl in vars_with_values[:20]:
+                    clean = {k: v for k, v in vl.items() if isinstance(k, (int, float)) and k < 90}
+                    if clean:
+                        vals = ", ".join(f"{k}={v}" for k, v in sorted(clean.items()))
+                        lines.append(f"  {col}: {vals}")
 
             return "\n".join(lines)
         except Exception:
@@ -172,12 +182,13 @@ class RAGAgent(BaseAgent):
 
         t0 = time.time()
         try:
-            response = self.agent.invoke({
-                "messages": [
+            response = self.agent.invoke(
+                {"messages": [
                     SystemMessage(content=system),
                     HumanMessage(content=question),
-                ]
-            })
+                ]},
+                {"recursion_limit": 30},
+            )
         except Exception as e:
             return AnalysisResult(
                 question=question,

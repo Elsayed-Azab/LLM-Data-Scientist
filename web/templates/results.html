@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = "results" %}
-{% block title %}Evaluation Results{% endblock %}
+{% block title %}Results & Diagnostics{% endblock %}
 
 {% block sidebar %}
 <div style="margin-top:10px;">
@@ -13,8 +13,8 @@
 {% block content %}
 <div class="content">
     <div class="page-head">
-        <h1>Evaluation Results</h1>
-        <p class="sub">Browse past experiments and evaluation reports</p>
+        <h1>Results & Diagnostics</h1>
+        <p class="sub">Evaluation performance and error analysis in one view</p>
     </div>
 
     <div id="empty" class="alert alert-info" style="display:none;">
@@ -25,38 +25,78 @@
     <div id="content" style="display:none;">
         <div class="hr"></div>
 
+        <!-- Top metrics -->
         <div id="top-metrics" class="grid grid-4" style="margin-bottom:24px;"></div>
 
-        <div class="hr"></div>
-        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Agent Summary</h3>
-        <div class="table-wrap"><table id="sum-tbl"><thead></thead><tbody></tbody></table></div>
+        <!-- View tabs -->
+        <div class="tabs" id="viewtabs">
+            <button class="tab active" onclick="switchTab('overview',this)">Overview</button>
+            <button class="tab" onclick="switchTab('diagnostics',this)">Diagnostics</button>
+            <button class="tab" onclick="switchTab('detail',this)">Per-Question</button>
+        </div>
 
-        <div class="hr"></div>
-        <div class="grid grid-2">
-            <div>
-                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Accuracy</h3>
-                <canvas id="acc-c"></canvas>
+        <!-- ═══ OVERVIEW TAB ═══ -->
+        <div class="tab-panel active" id="tab-overview">
+            <h3 style="color:var(--text); font-size:0.95rem; margin:18px 0 14px;">Agent Summary</h3>
+            <div class="table-wrap"><table id="sum-tbl"><thead></thead><tbody></tbody></table></div>
+
+            <div class="hr"></div>
+            <div class="grid grid-2">
+                <div>
+                    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Accuracy</h3>
+                    <canvas id="acc-c"></canvas>
+                </div>
+                <div>
+                    <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Execution Time</h3>
+                    <canvas id="tm-c"></canvas>
+                </div>
             </div>
-            <div>
-                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Execution Time</h3>
-                <canvas id="tm-c"></canvas>
+
+            <div class="hr"></div>
+            <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Accuracy Heatmap</h3>
+            <div class="table-wrap"><table id="heat-tbl"><thead></thead><tbody></tbody></table></div>
+        </div>
+
+        <!-- ═══ DIAGNOSTICS TAB ═══ -->
+        <div class="tab-panel" id="tab-diagnostics">
+            <div id="diag-loading" class="alert alert-info" style="margin-top:16px;">Loading diagnostics...</div>
+            <div id="diag-content" style="display:none;">
+                <h3 style="color:var(--text); font-size:0.95rem; margin:18px 0 12px;">Errors by Agent</h3>
+                <div class="table-wrap"><table id="agentTbl"><thead></thead><tbody></tbody></table></div>
+                <div style="max-width:600px; margin-top:16px;"><canvas id="agentChart"></canvas></div>
+
+                <div class="hr"></div>
+                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Performance by Question Type</h3>
+                <div class="table-wrap"><table id="typeTbl"><thead></thead><tbody></tbody></table></div>
+                <div style="max-width:600px; margin-top:16px;"><canvas id="typeChart"></canvas></div>
+
+                <div class="hr"></div>
+                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Performance by Dataset</h3>
+                <div class="table-wrap"><table id="dsTbl"><thead></thead><tbody></tbody></table></div>
+
+                <div class="hr"></div>
+                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Weight Usage Failures</h3>
+                <div id="weightSection"></div>
+
+                <div class="hr"></div>
+                <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:12px;">Low Accuracy Questions (&lt;50%)</h3>
+                <div class="table-wrap"><table id="lowAccTbl"><thead></thead><tbody></tbody></table></div>
             </div>
         </div>
 
-        <div class="hr"></div>
-        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Per-Question Breakdown</h3>
-        <div class="table-wrap"><table id="det-tbl"><thead></thead><tbody></tbody></table></div>
-
-        <div class="hr"></div>
-        <h3 style="color:var(--text); font-size:0.95rem; margin-bottom:14px;">Accuracy Heatmap</h3>
-        <div class="table-wrap"><table id="heat-tbl"><thead></thead><tbody></tbody></table></div>
+        <!-- ═══ PER-QUESTION TAB ═══ -->
+        <div class="tab-panel" id="tab-detail">
+            <h3 style="color:var(--text); font-size:0.95rem; margin:18px 0 14px;">Per-Question Breakdown</h3>
+            <div class="table-wrap"><table id="det-tbl"><thead></thead><tbody></tbody></table></div>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-let ac=null, tc=null;
+let ac=null, tc=null, agentCh=null, typeCh=null;
+let diagLoaded = false;
 const CL = ['#10a37f','#ab68ff','#3b82f6','#f59e0b'];
 const CO = {
     responsive: true,
@@ -66,6 +106,15 @@ const CO = {
         x: { grid: { display: false }, ticks: { color: '#b4b4b4' } }
     }
 };
+
+function switchTab(name, btn) {
+    document.querySelectorAll('#viewtabs .tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#content > .tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+    // Lazy-load diagnostics on first click
+    if (name === 'diagnostics' && !diagLoaded) loadDiagnostics();
+}
 
 fetch('/api/results/list').then(r => r.json()).then(files => {
     if (!files.length) { document.getElementById('empty').style.display = 'block'; return; }
@@ -80,6 +129,7 @@ fetch('/api/results/list').then(r => r.json()).then(files => {
 async function load() {
     const f = document.getElementById('rf').value;
     if (!f) return;
+    diagLoaded = false; // reset diagnostics on file change
     const data = await (await fetch(`/api/results/${f}`)).json();
     if (!data.length) return;
     document.getElementById('content').style.display = 'block';
@@ -103,11 +153,13 @@ function renderEval(data) {
 
     const best = S.reduce((a,b) => a.acc > b.acc ? a : b);
     const fast = S.reduce((a,b) => a.t < b.t ? a : b);
+    const lowAcc = data.filter(d => d.accuracy < 0.5).length;
+    const wFail = data.filter(d => !d.weight_used).length;
     document.getElementById('top-metrics').innerHTML = `
         <div class="metric"><div class="num green">${(best.acc*100).toFixed(0)}%</div><div class="lbl">Best Accuracy</div><div class="lbl" style="margin-top:2px;">${best.agent}</div></div>
         <div class="metric"><div class="num blue">${fast.t.toFixed(1)}s</div><div class="lbl">Fastest</div><div class="lbl" style="margin-top:2px;">${fast.agent}</div></div>
-        <div class="metric"><div class="num">${data.length}</div><div class="lbl">Total Evaluations</div></div>
-        <div class="metric"><div class="num">${agents.length}</div><div class="lbl">Agents Tested</div></div>
+        <div class="metric"><div class="num" style="color:${lowAcc > 0 ? '#f43f5e' : 'var(--text)'}">${lowAcc}</div><div class="lbl">Low Accuracy (&lt;50%)</div></div>
+        <div class="metric"><div class="num" style="color:${wFail > 0 ? '#f59e0b' : 'var(--text)'}">${wFail}</div><div class="lbl">Weight Failures</div></div>
     `;
 
     // Summary table
@@ -131,13 +183,6 @@ function renderEval(data) {
         options: CO
     });
 
-    // Detail table
-    const dh = document.querySelector('#det-tbl thead'), db = document.querySelector('#det-tbl tbody');
-    dh.innerHTML = '<tr><th>Question</th><th>Agent</th><th>Dataset</th><th>Accuracy</th><th>Weights</th><th>Time</th></tr>';
-    db.innerHTML = data.sort((a,b) => (a.question_id||'').localeCompare(b.question_id||'')).map(d =>
-        `<tr><td>${d.question_id||'-'}</td><td>${d.agent}</td><td>${d.dataset}</td><td>${(d.accuracy*100).toFixed(0)}%</td><td>${d.weight_used ? '<span style="color:var(--accent)">&#10003;</span>' : '<span style="color:#f43f5e">&#10007;</span>'}</td><td>${d.execution_time?.toFixed(1)}s</td></tr>`
-    ).join('');
-
     // Heatmap
     const qs = [...new Set(data.map(d => d.question_id).filter(Boolean))].sort();
     const hh = document.querySelector('#heat-tbl thead'), hb = document.querySelector('#heat-tbl tbody');
@@ -151,13 +196,17 @@ function renderEval(data) {
         });
         return `<tr><td>${q}</td>${cells.join('')}</tr>`;
     }).join('');
-}
 
-function heatColor(v) {
-    // Green for high accuracy, red for low
-    if (v >= 0.8) return 'rgba(16,163,127,0.25)';
-    if (v >= 0.5) return 'rgba(245,158,11,0.2)';
-    return 'rgba(244,63,94,0.2)';
+    // Detail table
+    const dh = document.querySelector('#det-tbl thead'), db = document.querySelector('#det-tbl tbody');
+    dh.innerHTML = '<tr><th>Question</th><th>Agent</th><th>Dataset</th><th>Accuracy</th><th>Completeness</th><th>Weights</th><th>Time</th></tr>';
+    db.innerHTML = data.sort((a,b) => (a.question_id||'').localeCompare(b.question_id||'')).map(d =>
+        `<tr><td>${d.question_id||'-'}</td><td>${d.agent}</td><td>${d.dataset}</td>
+         <td style="${d.accuracy>=0.7?'color:var(--accent)':d.accuracy<0.5?'color:#f43f5e':''}">${(d.accuracy*100).toFixed(0)}%</td>
+         <td>${(d.completeness*100).toFixed(0)}%</td>
+         <td>${d.weight_used ? '<span style="color:var(--accent)">&#10003;</span>' : '<span style="color:#f43f5e">&#10007;</span>'}</td>
+         <td>${d.execution_time?.toFixed(1)}s</td></tr>`
+    ).join('');
 }
 
 function renderExp(data) {
@@ -174,6 +223,107 @@ function renderExp(data) {
     db.innerHTML = data.map((d,i) =>
         `<tr><td>${i+1}</td><td>${d.question?.substring(0,80)}</td><td>${d.success ? '<span style="color:var(--accent)">&#10003;</span>' : '<span style="color:#f43f5e">&#10007;</span>'}</td><td>${d.execution_time_seconds?.toFixed(1)}s</td></tr>`
     ).join('');
+}
+
+function heatColor(v) {
+    if (v >= 0.8) return 'rgba(16,163,127,0.25)';
+    if (v >= 0.5) return 'rgba(245,158,11,0.2)';
+    return 'rgba(244,63,94,0.2)';
+}
+
+/* ═══ DIAGNOSTICS ═══ */
+
+async function loadDiagnostics() {
+    const file = document.getElementById('rf').value;
+    if (!file) return;
+    document.getElementById('diag-loading').style.display = 'block';
+    document.getElementById('diag-content').style.display = 'none';
+
+    const res = await fetch(`/api/error-analysis?file=${encodeURIComponent(file)}`);
+    const data = await res.json();
+    if (data.error) {
+        document.getElementById('diag-loading').textContent = `Error: ${data.error}`;
+        return;
+    }
+    document.getElementById('diag-loading').style.display = 'none';
+    document.getElementById('diag-content').style.display = 'block';
+    diagLoaded = true;
+    renderDiagnostics(data);
+}
+
+function renderDiagnostics(data) {
+    const agents = Object.keys(data.errors_by_agent);
+
+    // Agent table
+    const ath = document.querySelector('#agentTbl thead'), atb = document.querySelector('#agentTbl tbody');
+    ath.innerHTML = '<tr><th>Agent</th><th>Total</th><th>Errors</th><th>Low Accuracy</th><th>Weight Failures</th><th>Error Rate</th></tr>';
+    atb.innerHTML = agents.map(a => {
+        const d = data.errors_by_agent[a];
+        const rate = d.total > 0 ? ((d.errors + d.low_accuracy) / d.total * 100).toFixed(0) + '%' : '0%';
+        return `<tr><td>${a}</td><td>${d.total}</td><td>${d.errors}</td><td>${d.low_accuracy}</td><td>${d.weight_failures}</td><td>${rate}</td></tr>`;
+    }).join('');
+
+    // Agent chart
+    const ctx = document.getElementById('agentChart').getContext('2d');
+    if (agentCh) agentCh.destroy();
+    agentCh = new Chart(ctx, {type: 'bar', data: {labels: agents, datasets: [
+        {label: 'Runtime Errors', data: agents.map(a => data.errors_by_agent[a].errors), backgroundColor: 'rgba(244,63,94,0.7)', borderRadius: 4, barPercentage: 0.6},
+        {label: 'Low Accuracy', data: agents.map(a => data.errors_by_agent[a].low_accuracy), backgroundColor: 'rgba(245,158,11,0.7)', borderRadius: 4, barPercentage: 0.6},
+        {label: 'Weight Failures', data: agents.map(a => data.errors_by_agent[a].weight_failures), backgroundColor: 'rgba(59,130,246,0.7)', borderRadius: 4, barPercentage: 0.6},
+    ]}, options: {responsive: true, plugins: {legend: {labels: {color: '#b4b4b4', font: {size: 11}}}}, scales: {y: {beginAtZero: true, grid: {color: 'rgba(255,255,255,0.04)'}, ticks: {color: '#8e8e8e', stepSize: 1}}, x: {grid: {display: false}, ticks: {color: '#b4b4b4'}}}}});
+
+    // Question type table
+    const types = Object.keys(data.errors_by_question_type);
+    const tth = document.querySelector('#typeTbl thead'), ttb = document.querySelector('#typeTbl tbody');
+    tth.innerHTML = '<tr><th>Type</th><th>Total</th><th>Failures</th><th>Avg Accuracy</th><th>Failure Rate</th></tr>';
+    ttb.innerHTML = types.map(t => {
+        const d = data.errors_by_question_type[t];
+        const rate = d.total > 0 ? (d.errors / d.total * 100).toFixed(0) + '%' : '0%';
+        const accColor = d.avg_accuracy >= 0.7 ? 'color:var(--accent)' : d.avg_accuracy < 0.5 ? 'color:#f43f5e' : '';
+        return `<tr><td>${t}</td><td>${d.total}</td><td>${d.errors}</td><td style="${accColor}">${(d.avg_accuracy * 100).toFixed(0)}%</td><td>${rate}</td></tr>`;
+    }).join('');
+
+    // Type chart
+    const ctx2 = document.getElementById('typeChart').getContext('2d');
+    if (typeCh) typeCh.destroy();
+    typeCh = new Chart(ctx2, {type: 'bar', data: {labels: types, datasets: [
+        {label: 'Avg Accuracy', data: types.map(t => data.errors_by_question_type[t].avg_accuracy * 100),
+         backgroundColor: types.map(t => data.errors_by_question_type[t].avg_accuracy >= 0.7 ? 'rgba(16,163,127,0.7)' : data.errors_by_question_type[t].avg_accuracy >= 0.5 ? 'rgba(245,158,11,0.7)' : 'rgba(244,63,94,0.7)'),
+         borderRadius: 4, barPercentage: 0.5}
+    ]}, options: {responsive: true, plugins: {legend: {display: false}, title: {display: true, text: 'Avg Accuracy by Question Type (%)', color: '#b4b4b4', font: {size: 12}}}, scales: {y: {beginAtZero: true, max: 100, grid: {color: 'rgba(255,255,255,0.04)'}, ticks: {color: '#8e8e8e'}}, x: {grid: {display: false}, ticks: {color: '#b4b4b4'}}}}});
+
+    // Dataset table
+    const dsets = Object.keys(data.errors_by_dataset);
+    const dth = document.querySelector('#dsTbl thead'), dtb = document.querySelector('#dsTbl tbody');
+    dth.innerHTML = '<tr><th>Dataset</th><th>Total</th><th>Failures</th><th>Avg Accuracy</th><th>Failure Rate</th></tr>';
+    dtb.innerHTML = dsets.map(d => {
+        const v = data.errors_by_dataset[d];
+        const rate = v.total > 0 ? (v.errors / v.total * 100).toFixed(0) + '%' : '0%';
+        const accColor = v.avg_accuracy >= 0.7 ? 'color:var(--accent)' : v.avg_accuracy < 0.5 ? 'color:#f43f5e' : '';
+        return `<tr><td>${d}</td><td>${v.total}</td><td>${v.errors}</td><td style="${accColor}">${(v.avg_accuracy * 100).toFixed(0)}%</td><td>${rate}</td></tr>`;
+    }).join('');
+
+    // Weight failures
+    const ws = document.getElementById('weightSection');
+    if (data.weight_failures.length === 0) {
+        ws.innerHTML = '<div class="alert alert-ok">All agents correctly applied survey weights.</div>';
+    } else {
+        ws.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Agent</th><th>Question</th><th>Dataset</th></tr></thead><tbody>${
+            data.weight_failures.map(w => `<tr><td>${w.agent}</td><td>${w.question_id}</td><td>${w.dataset}</td></tr>`).join('')
+        }</tbody></table></div>`;
+    }
+
+    // Low accuracy table
+    const lth = document.querySelector('#lowAccTbl thead'), ltb = document.querySelector('#lowAccTbl tbody');
+    lth.innerHTML = '<tr><th>Agent</th><th>Question</th><th>Dataset</th><th>Type</th><th>Accuracy</th></tr>';
+    if (data.low_accuracy_questions.length === 0) {
+        ltb.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-3);">No low-accuracy questions found.</td></tr>';
+    } else {
+        ltb.innerHTML = data.low_accuracy_questions.map(q => {
+            const accColor = q.accuracy === 0 ? 'color:#f43f5e' : 'color:#f59e0b';
+            return `<tr><td>${q.agent}</td><td>${q.question_id}</td><td>${q.dataset}</td><td>${q.type}</td><td style="${accColor}">${(q.accuracy * 100).toFixed(0)}%</td></tr>`;
+        }).join('');
+    }
 }
 </script>
 {% endblock %}

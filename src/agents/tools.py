@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 
 from src.analysis.executor import CodeExecutor
 from src.data.loader import DatasetLoader
+from src.data.metadata import get_variable_labels, get_value_labels, get_variable_detail
 from src.data.preprocessor import Preprocessor
 
 
@@ -67,21 +68,30 @@ def load_dataset(dataset_name: str, columns: list[str] | None = None) -> str:
 
 @tool
 def get_dataset_schema(dataset_name: str) -> str:
-    """Get lightweight schema info (columns, dtypes, sample) without loading the full dataset.
+    """Get lightweight schema info (columns, dtypes, variable labels) without loading the full dataset.
 
     Use this before load_dataset to inspect what columns are available.
+    Variable labels describe what each column means (e.g. Q1001 = "How old are you?").
 
     Args:
         dataset_name: One of 'gss', 'arab_barometer', 'wvs'.
     """
     schema = _loader.get_schema(dataset_name, sample_rows=3)
     all_cols = schema["columns"]
-    if len(all_cols) > 100:
-        col_lines = "\n".join(f"  {c}: {schema['dtypes'][c]}" for c in all_cols[:100])
-        col_lines += f"\n  ... and {len(all_cols) - 100} more columns (use get_variable_info to inspect specific ones)"
-    else:
-        col_lines = "\n".join(f"  {c}: {schema['dtypes'][c]}" for c in all_cols)
-    return f"Dataset: {dataset_name}\nColumns ({len(all_cols)}):\n{col_lines}"
+    var_labels = get_variable_labels(dataset_name)
+
+    limit = 100
+    shown_cols = all_cols[:limit]
+    col_lines = []
+    for c in shown_cols:
+        label = var_labels.get(c, "")
+        label_str = f" — {label}" if label else ""
+        col_lines.append(f"  {c} ({schema['dtypes'][c]}){label_str}")
+
+    result = f"Dataset: {dataset_name}\nColumns ({len(all_cols)}):\n" + "\n".join(col_lines)
+    if len(all_cols) > limit:
+        result += f"\n  ... and {len(all_cols) - limit} more columns (use search_columns to find specific ones)"
+    return result
 
 
 @tool
@@ -134,7 +144,11 @@ def run_analysis_code(dataset_name: str, code: str) -> str:
 
 @tool
 def get_variable_info(dataset_name: str, variable_names: list[str]) -> str:
-    """Get basic info about specific variables: dtype, unique values, missing count.
+    """Get detailed info about specific variables: label, dtype, and value codes.
+
+    Returns the variable description (what it measures) and value labels
+    (what each numeric code means), which is essential for interpreting
+    survey data correctly.
 
     Args:
         dataset_name: The dataset to inspect.
@@ -146,33 +160,57 @@ def get_variable_info(dataset_name: str, variable_names: list[str]) -> str:
     for var in variable_names:
         if var not in available:
             lines.append(f"{var}: NOT FOUND in dataset")
-        else:
-            lines.append(f"{var}: dtype={schema['dtypes'].get(var, '?')}")
-    return "\n".join(lines)
+            continue
+
+        detail = get_variable_detail(dataset_name, var)
+        dtype = schema["dtypes"].get(var, "?")
+        label = detail["label"]
+        val_labels = detail["value_labels"]
+
+        parts = [f"{var}:"]
+        if label:
+            parts.append(f"  Label: {label}")
+        parts.append(f"  Type: {dtype}")
+        if val_labels:
+            parts.append("  Values:")
+            for code, meaning in sorted(val_labels.items(), key=lambda x: x[0]):
+                parts.append(f"    {code} = {meaning}")
+        lines.append("\n".join(parts))
+    return "\n\n".join(lines)
 
 
 @tool
 def search_columns(dataset_name: str, keyword: str) -> str:
-    """Search for column names containing a keyword. Essential for large datasets like GSS (6000+ columns).
+    """Search for columns by keyword — matches against both column names AND variable labels.
 
-    Use this BEFORE loading data to find the right column names.
-    For example, search 'educ' to find education-related columns,
-    'happy' for happiness, 'income' or 'realinc' for income, etc.
+    Essential for finding the right columns, especially in datasets with coded names
+    (e.g. Q1001, Q201A_1). Searches both the column name and its description.
+
+    Examples: search 'age' to find age columns, 'trust' for trust variables,
+    'education' for education, 'internet' for internet usage, etc.
 
     Args:
         dataset_name: One of 'gss', 'arab_barometer', 'wvs'.
-        keyword: Search term (case-insensitive).
+        keyword: Search term (case-insensitive). Matches column names and labels.
     """
     schema = _loader.get_schema(dataset_name, sample_rows=1)
+    var_labels = get_variable_labels(dataset_name)
     keyword_lower = keyword.lower()
-    matches = [c for c in schema["columns"] if keyword_lower in c.lower()]
+
+    # Search both column names and labels
+    matches = []
+    for c in schema["columns"]:
+        label = var_labels.get(c) or ""
+        if keyword_lower in c.lower() or keyword_lower in label.lower():
+            matches.append((c, label))
 
     if not matches:
         return f"No columns matching '{keyword}' in {dataset_name}."
 
     lines = [f"Columns matching '{keyword}' in {dataset_name} ({len(matches)} found):"]
-    for col in matches[:30]:
-        lines.append(f"  {col}: {schema['dtypes'].get(col, '?')}")
+    for col, label in matches[:30]:
+        label_str = f" — {label}" if label else ""
+        lines.append(f"  {col} ({schema['dtypes'].get(col, '?')}){label_str}")
     if len(matches) > 30:
         lines.append(f"  ... and {len(matches) - 30} more")
     return "\n".join(lines)
