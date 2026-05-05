@@ -8,7 +8,7 @@ Users ask analytical questions in natural language. The system generates Python 
 
 - **Single Agent** — ReAct loop (reason + act iteratively)
 - **Multi-Agent** — Planner → Analyst → Reviewer pipeline with retry
-- **RAG Agent** — Retrieves codebook context from a vector store before analysis
+- **RAG Agent** — Retrieves codebook context from a vector store before analysis and answers
 
 Supports both **OpenAI** (gpt-4o, gpt-4o-mini) and **Anthropic** (Claude Sonnet, Opus, Haiku) models.
 
